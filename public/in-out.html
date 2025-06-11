@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>IN / OUT Slots</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+    }
+    /* Flex container to align both sections */
+    .in-out-container {
+      display: flex;
+      gap: 40px;            /* space between IN and OUT */
+      align-items: flex-start; /* align both at top */
+    }
+    .section {
+      flex: 1;
+    }
+    h2 {
+      margin-top: 0;
+    }
+    /* original table styling */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background: #eee;
+    }
+  </style>
+</head>
+<body>
+  <div class="in-out-container">
+    <!-- IN section -->
+    <div class="section">
+      <h2>IN Slots</h2>
+      <table id="in-table">
+        <thead>
+          <tr><th>Username</th><th>Slot</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- OUT section -->
+    <div class="section">
+      <h2>OUT Slots</h2>
+      <table id="out-table">
+        <thead>
+          <tr><th>Username</th><th>Slot</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="in-out.js"></script>
+</body>
+</html>
