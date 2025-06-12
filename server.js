@@ -25,35 +25,40 @@ if (!CHANNEL_SLUG)  throw new Error('Missing CHANNEL_SLUG in .env');
 const delay = ms => new Promise(res => setTimeout(res, ms));
 
 /**
- * Dismiss any cookie banner by clicking Accept or Reject buttons when present.
+ * Dismiss any cookie banner by clicking "Accept" or "Reject" buttons.
  */
 async function dismissBanner(page) {
   try {
-    const acceptBtn = await page.waitForXPath("//button[normalize-space()='Accept']", { timeout: 3000 });
+    const acceptBtn = await page.waitForXPath(
+      "//button[normalize-space()='Accept']",
+      { timeout: 3000 }
+    );
     await acceptBtn.click();
     await page.waitForTimeout(500);
   } catch {}
   try {
-    const rejectBtn = await page.waitForXPath("//button[normalize-space()='Reject']", { timeout: 3000 });
+    const rejectBtn = await page.waitForXPath(
+      "//button[normalize-space()='Reject']",
+      { timeout: 3000 }
+    );
     await rejectBtn.click();
     await page.waitForTimeout(500);
   } catch {}
 }
 
 /**
- * Send a chat reply by injecting text into Kick's Lexical editor,
- * dismissing banners, focusing the input, and sending.
+ * Injects a reply into Kick's Lexical chat input and sends it.
  */
 async function sendChatReply(page, text) {
-  // Dismiss cookie banners if present
   await dismissBanner(page);
 
-  // Focus the chat input
-  const handle = await page.waitForSelector('div[data-test="chat-input"]', { timeout: 5000 });
+  const handle = await page.waitForSelector(
+    'div[data-test="chat-input"]',
+    { timeout: 5000 }
+  );
   await handle.click();
   await page.waitForTimeout(50);
 
-  // Inject the reply in Lexical format
   await page.evaluate((el, txt) => {
     el.innerHTML =
       `<p class="editor-paragraph">` +
@@ -62,7 +67,6 @@ async function sendChatReply(page, text) {
     el.dispatchEvent(new InputEvent('input', { bubbles: true }));
   }, handle, text);
 
-  // Send via Send button or Enter key
   const sendBtn = await page.$('button[data-test="send"], button[aria-label="Send"]');
   if (sendBtn) {
     await sendBtn.click();
@@ -71,16 +75,11 @@ async function sendChatReply(page, text) {
   }
 }
 
-/**
- * Launches the Puppeteer bot: logs in (with 2FA), navigates to chat,
- * hooks WebSocket frames to capture !slots commands, saves to MongoDB,
- * and replies in chat.
- */
 async function startBot(chats) {
   console.log('🚨 Starting Kick bot…');
 
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: false,
     args: ['--no-sandbox','--disable-setuid-sandbox']
   });
   const page = await browser.newPage();
@@ -90,7 +89,7 @@ async function startBot(chats) {
     'Chrome/115.0.0.0 Safari/537.36'
   );
 
-  // Restore cookies if available
+  // 1) Restore session cookies if available
   try {
     const raw = await fs.readFile('./cookies.json', 'utf8');
     await page.setCookie(...JSON.parse(raw));
@@ -99,16 +98,16 @@ async function startBot(chats) {
     console.log('🔒 No cookies.json found; will log in manually');
   }
 
-  // Navigate to Kick and dismiss banner
+  // 2) Navigate to kick.com and dismiss banner
   console.log('🌐 Navigating to kick.com');
   await page.goto('https://kick.com', { waitUntil: 'networkidle2' });
   await dismissBanner(page);
 
-  // Perform login if needed
+  // 3) Perform login flow if a login button is present
   const loginBtns = await page.$$('button[data-test="login"]');
-  if (loginBtns.length >= 2) {
+  if (loginBtns.length > 0) {
     console.log('🔐 Performing login flow…');
-    await loginBtns[1].click();
+    await loginBtns[0].click();
     await dismissBanner(page);
     console.log('⏳ Waiting for login dialog…');
     await page.waitForSelector('div[role="dialog"] input', { timeout: 60000 });
@@ -130,15 +129,16 @@ async function startBot(chats) {
     console.log('✅ Already logged in via restored cookies');
   }
 
-  // Navigate to the chat page and dismiss banner
+  // 4) Navigate to chat page and dismiss banner
   const chatURL = `https://kick.com/${CHANNEL_SLUG}/chat`;
   console.log(`🎯 Navigating to chat page: ${chatURL}`);
   await page.goto(chatURL, { waitUntil: 'networkidle2' });
   await dismissBanner(page);
 
-  // Hook into WebSocket frames
+  // 5) Hook WebSocket frames for !slots
   const cdp = await page.target().createCDPSession();
   await cdp.send('Network.enable');
+
   cdp.on('Network.webSocketFrameReceived', async ({ response }) => {
     try {
       const outer = JSON.parse(response.payloadData);
@@ -146,9 +146,9 @@ async function startBot(chats) {
       const msg = typeof outer.data === 'string'
         ? JSON.parse(outer.data)
         : outer.data;
-      const text = msg.content;
-      if (typeof text === 'string' && text.startsWith('!slots ')) {
-        const slotText = text.slice(7).trim();
+      const content = msg.content;
+      if (typeof content === 'string' && content.startsWith('!slot ')) {
+        const slotText = content.slice(6).trim();
 
         // Duplicate check
         const exists = await chats.findOne({ msg: slotText });
@@ -157,7 +157,7 @@ async function startBot(chats) {
           return;
         }
 
-        // Insert new slot
+        // Save new slot
         const badges = msg.sender.identity.badges || [];
         const slot = {
           time:       new Date(),
@@ -175,16 +175,13 @@ async function startBot(chats) {
         console.log('💬 Sent confirmation reply');
       }
     } catch {
-      // ignore non-chat frames
+      // ignore
     }
   });
 
   console.log('🚨 Bot is up — listening for !slots messages');
 }
 
-/**
- * Starts the Express server and the Puppeteer bot.
- */
 async function startServerAndBot() {
   // Connect to MongoDB
   const client = new MongoClient(MONGODB_URI, { useUnifiedTopology: true });
@@ -197,20 +194,23 @@ async function startServerAndBot() {
   app.use(express.json());
   app.use(express.static(path.join(process.cwd(), 'public')));
 
-  // CRUD endpoints
   app.get('/api/slots', async (req, res) => {
     const filter = {};
     if (req.query.status) filter.status = req.query.status;
     const docs = await chats.find(filter).sort({ time: -1 }).toArray();
     res.json(docs);
   });
+
   app.delete('/api/slots/:id', async (req, res) => {
     await chats.deleteOne({ _id: new ObjectId(req.params.id) });
     res.sendStatus(204);
   });
+
   app.patch('/api/slots/:id', async (req, res) => {
     const { status } = req.body;
-    if (!['IN','OUT'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+    if (!['IN','OUT'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
     await chats.updateOne(
       { _id: new ObjectId(req.params.id) },
       { $set: { status } }
@@ -218,12 +218,10 @@ async function startServerAndBot() {
     res.sendStatus(204);
   });
 
-  // Start HTTP server
   app.listen(PORT, () => {
     console.log(`🖥️ Server listening at http://0.0.0.0:${PORT}`);
   });
 
-  // Start the bot
   startBot(chats).catch(err => {
     console.error('💥 Bot encountered an error:', err);
   });
