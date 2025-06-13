@@ -6,7 +6,6 @@ import path from 'path';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { MongoClient, ObjectId } from 'mongodb';
-import axios from 'axios';
 
 puppeteer.use(StealthPlugin());
 
@@ -15,7 +14,6 @@ const {
   KICK_PASSWORD,
   MONGODB_URI,
   CHANNEL_SLUG,
-  DISCORD_WEBHOOK_URL,
   PORT = 3000
 } = process.env;
 
@@ -26,23 +24,38 @@ if (!CHANNEL_SLUG)  throw new Error('Missing CHANNEL_SLUG in .env');
 
 const delay = ms => new Promise(res => setTimeout(res, ms));
 
+/**
+ * Dismiss any cookie banner by clicking "Accept" or "Reject" buttons.
+ */
 async function dismissBanner(page) {
   try {
-    const acceptBtn = await page.waitForXPath("//button[normalize-space()='Accept']", { timeout: 3000 });
+    const acceptBtn = await page.waitForXPath(
+      "//button[normalize-space()='Accept']",
+      { timeout: 3000 }
+    );
     await acceptBtn.click();
     await page.waitForTimeout(500);
   } catch {}
   try {
-    const rejectBtn = await page.waitForXPath("//button[normalize-space()='Reject']", { timeout: 3000 });
+    const rejectBtn = await page.waitForXPath(
+      "//button[normalize-space()='Reject']",
+      { timeout: 3000 }
+    );
     await rejectBtn.click();
     await page.waitForTimeout(500);
   } catch {}
 }
 
+/**
+ * Injects a reply into Kick's Lexical chat input and sends it.
+ */
 async function sendChatReply(page, text) {
   await dismissBanner(page);
 
-  const handle = await page.waitForSelector('div[data-test="chat-input"]', { timeout: 5000 });
+  const handle = await page.waitForSelector(
+    'div[data-test="chat-input"]',
+    { timeout: 5000 }
+  );
   await handle.click();
   await page.waitForTimeout(50);
 
@@ -66,102 +79,117 @@ async function startBot(chats) {
   console.log('🚨 Starting Kick bot…');
 
   const browser = await puppeteer.launch({
-    headless: 'new',
-    executablePath: '/usr/bin/chromium-browser',
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--disable-extensions',
-      '--disable-popup-blocking',
-      '--no-first-run',
-      '--remote-debugging-port=9222'
-    ]
+    headless: false,
+    args: ['--no-sandbox','--disable-setuid-sandbox']
   });
-
   const page = await browser.newPage();
-  await page.setUserAgent(/* … */);
-  page.setDefaultNavigationTimeout(0);
+  await page.setUserAgent(
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+    'Chrome/115.0.0.0 Safari/537.36'
+  );
 
-  // ─── Cookie restore ──────────────────────────────────────
-  console.log('🌐 Navigating to kick.com for cookie restore…');
-  await page.goto('https://kick.com', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  // 1) Restore session cookies if available
   try {
     const raw = await fs.readFile('./cookies.json', 'utf8');
-    const cookies = JSON.parse(raw);
-    await page.setCookie(...cookies);
+    await page.setCookie(...JSON.parse(raw));
     console.log('🔓 Restored session cookies');
-    await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
-    console.log('🔄 Page reloaded with cookies');
   } catch {
     console.log('🔒 No cookies.json found; will log in manually');
   }
-  // ─────────────────────────────────────────────────────────
 
+  // 2) Navigate to kick.com and dismiss banner
+  console.log('🌐 Navigating to kick.com');
+  await page.goto('https://kick.com', { waitUntil: 'networkidle2' });
   await dismissBanner(page);
 
-  // ─── New login flow ────────────────────────────────────
-  // Click the account icon to open the dropdown
-  const accountBtn = await page.waitForSelector(
-    'button[data-test="navbar-account"], button[aria-label="account"]',
-    { timeout: 10000 }
-  );
-  await accountBtn.click();
-  await page.waitForTimeout(500);
-
-  // Click the "Log in" entry
-  const [loginEntry] = await page.$x(
-    "//button[normalize-space()='Log in'] | //a[normalize-space()='Log in']"
-  );
-  if (loginEntry) {
-    await loginEntry.click();
+  // 3) Perform login flow if a login button is present
+  const loginBtns = await page.$$('button[data-test="login"]');
+  if (loginBtns.length > 0) {
+    console.log('🔐 Performing login flow…');
+    await loginBtns[0].click();
+    await dismissBanner(page);
+    console.log('⏳ Waiting for login dialog…');
+    await page.waitForSelector('div[role="dialog"] input', { timeout: 60000 });
+    const inputs = await page.$$('div[role="dialog"] input');
+    if (inputs.length < 2) throw new Error('Email/password inputs not found');
+    await inputs[0].type(KICK_USERNAME, { delay: 50 });
+    await inputs[1].type(KICK_PASSWORD, { delay: 50 });
+    console.log('🚀 Submitting credentials…');
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
+      page.click('div[role="dialog"] button[type="submit"]')
+    ]);
+    console.log('🔑 Complete 2FA in the browser; waiting 60s…');
+    await delay(60_000);
+    const freshCookies = await page.cookies();
+    await fs.writeFile('./cookies.json', JSON.stringify(freshCookies, null, 2));
+    console.log('🔒 Saved new session cookies');
   } else {
-    throw new Error("❌ Could not find the Log in button in the account menu");
+    console.log('✅ Already logged in via restored cookies');
   }
 
-  // Wait for the login form inputs
-  await page.waitForSelector(
-    'input[name="username"], input[type="email"]',
-    { timeout: 60000 }
-  );
-  const emailInput = await page.$('input[name="username"], input[type="email"]');
-  const passInput  = await page.$('input[type="password"]');
+  // 4) Navigate to chat page and dismiss banner
+  const chatURL = `https://kick.com/${CHANNEL_SLUG}/chat`;
+  console.log(`🎯 Navigating to chat page: ${chatURL}`);
+  await page.goto(chatURL, { waitUntil: 'networkidle2' });
+  await dismissBanner(page);
 
-  if (!emailInput || !passInput) {
-    throw new Error("❌ Login inputs not found");
-  }
+  // 5) Hook WebSocket frames for !slots
+  const cdp = await page.target().createCDPSession();
+  await cdp.send('Network.enable');
 
-  // Fill in credentials
-  await emailInput.type(KICK_USERNAME, { delay: 50 });
-  await passInput.type(KICK_PASSWORD, { delay: 50 });
+  cdp.on('Network.webSocketFrameReceived', async ({ response }) => {
+    try {
+      const outer = JSON.parse(response.payloadData);
+      if (!outer.data) return;
+      const msg = typeof outer.data === 'string'
+        ? JSON.parse(outer.data)
+        : outer.data;
+      const content = msg.content;
+      if (typeof content === 'string' && content.startsWith('!slot ')) {
+        const slotText = content.slice(6).trim();
 
-  // Submit
-  console.log('🚀 Submitting credentials…');
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }),
-    // Attempt to click the form's submit button:
-    page.click('button[type="submit"], button[data-test="login-submit"]')
-  ]);
+        // Duplicate check
+        const exists = await chats.findOne({ msg: slotText });
+        if (exists) {
+          await sendChatReply(page, `${msg.sender.username} this slot has already been called.`);
+          return;
+        }
 
-  console.log('🔑 Please complete 2FA in the browser; waiting 60s…');
-  await delay(60_000);
+        // Save new slot
+        const badges = msg.sender.identity.badges || [];
+        const slot = {
+          time:       new Date(),
+          user:       msg.sender.username,
+          msg:        slotText,
+          subscriber: badges.some(b => b.type === 'subscriber'),
+          vip:        badges.some(b => b.type === 'vip'),
+          moderator:  badges.some(b => b.type === 'moderator')
+        };
+        await chats.insertOne(slot);
+        console.log('➕ Saved slot:', slot);
 
-  // Save new cookies
-  const freshCookies = await page.cookies();
-  await fs.writeFile('./cookies.json', JSON.stringify(freshCookies, null, 2));
-  console.log('🔒 Saved fresh session cookies');
-  // ─────────────────────────────────────────────────────────
+        // Confirmation reply
+        await sendChatReply(page, `Your slot has been added to the list, ${slot.user}`);
+        console.log('💬 Sent confirmation reply');
+      }
+    } catch {
+      // ignore
+    }
+  });
 
-  // …then continue on to navigate to your chat page, hook WS, etc.
+  console.log('🚨 Bot is up — listening for !slots messages');
 }
 
 async function startServerAndBot() {
+  // Connect to MongoDB
   const client = new MongoClient(MONGODB_URI, { useUnifiedTopology: true });
   await client.connect();
   const chats = client.db().collection('chatMessages');
   console.log('✅ MongoDB connected');
 
+  // Express setup
   const app = express();
   app.use(express.json());
   app.use(express.static(path.join(process.cwd(), 'public')));
@@ -190,7 +218,7 @@ async function startServerAndBot() {
     res.sendStatus(204);
   });
 
-  app.listen(PORT, '0.0.0.0', () => {
+  app.listen(PORT, () => {
     console.log(`🖥️ Server listening at http://0.0.0.0:${PORT}`);
   });
 
