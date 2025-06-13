@@ -147,7 +147,7 @@ async function startBot(chats, sessions) {
         );
 
         if (await chats.findOne({ sessionId:currentSession._id, msg:slotMsg })) {
-          const warning = `${msg.sender.username} this slot has already been called.`;
+          const warning = `${msg.sender.username} this slot has already been called!`;
           console.log('🔍 Duplicate warning:', warning);
           await sendChatReply(page, warning);
           return;
@@ -179,7 +179,7 @@ async function startBot(chats, sessions) {
           }
         }
 
-        const reply = `Your slot has been added ${slot.user}`;
+        const reply = `your slot '${slot.msg}' has been added to the list ${slot.user}!`;
         console.log('🔍 About to send:', reply);
         await sendChatReply(page, reply);
       }
