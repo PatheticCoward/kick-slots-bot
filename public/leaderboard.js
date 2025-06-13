@@ -1,56 +1,43 @@
 // public/leaderboard.js
-
-async function loadLeaderboard() {
-  // Fetch only slots marked IN
-  const res = await fetch('/api/slots?status=IN');
-  if (!res.ok) {
-    console.error('Failed to fetch IN slots');
-    return;
-  }
-  const slots = await res.json();
-
-  // Tally counts and badges per user
-  const counts = {};
-  slots.forEach(s => {
-    if (!counts[s.user]) {
-      counts[s.user] = {
-        count:       0,
-        subscriber:  false,
-        vip:         false,
-        moderator:   false
-      };
-    }
-    counts[s.user].count += 1;
-    if (s.subscriber) counts[s.user].subscriber = true;
-    if (s.vip)        counts[s.user].vip        = true;
-    if (s.moderator)  counts[s.user].moderator  = true;
-  });
-
-  // Prepare sorted array
-  const data = Object.entries(counts)
-    .map(([user, info]) => ({ user, ...info }))
-    .sort((a, b) => b.count - a.count);
-
-  // Render table
-  const tbody = document.querySelector('#leaderboard tbody');
-  tbody.innerHTML = '';
-  data.forEach((entry, idx) => {
-    const icons = [];
-    if (entry.subscriber) icons.push('⭐');
-    if (entry.vip)        icons.push('💎');
-    if (entry.moderator)  icons.push('🛡️');
-
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${idx + 1}</td>
-      <td>${entry.user}${icons.length ? ' ' + icons.join(' ') : ''}</td>
-      <td>${entry.count}</td>
-    `;
-    tbody.append(tr);
-  });
-}
-
 document.addEventListener('DOMContentLoaded', () => {
-  loadLeaderboard();
-  setInterval(loadLeaderboard, 5000);
+  const sessSel = document.getElementById('sessionSelect');
+  const countB  = document.querySelector('#count-table tbody');
+  const payB    = document.querySelector('#payout-table tbody');
+
+  async function loadSessions() {
+    const res      = await fetch('/api/sessions');
+    const sessions = await res.json();
+    sessSel.innerHTML = sessions
+      .map(s=>`<option value="${s._id}">${s.label}</option>`)
+      .join('');
+    if(sessions.length) sessSel.value=sessions[0]._id;
+    renderLeaderboard();
+  }
+
+  async function renderLeaderboard() {
+    const sid   = sessSel.value;
+    const res   = await fetch(`/api/slots?sessionId=${sid}&status=IN`);
+    const slots = await res.json();
+
+    const cm={}, pm={};
+    slots.forEach(s=>{
+      cm[s.user]=(cm[s.user]||0)+1;
+      pm[s.user]=(pm[s.user]||0)+(parseFloat(s.payout)||0);
+    });
+
+    countB.innerHTML = Object.entries(cm)
+      .map(([u,c])=>`<tr><td>${u}</td><td>${c}</td></tr>`).join('');
+    payB.innerHTML   = Object.entries(pm)
+      .map(([u,t])=>`<tr><td>${u}</td><td>${t.toFixed(2)}</td></tr>`).join('');
+  }
+
+  sessSel.addEventListener('change', renderLeaderboard);
+
+  // SSE
+  const es = new EventSource('/events');
+  es.addEventListener('slot',        () => renderLeaderboard());
+  es.addEventListener('update',      () => renderLeaderboard());
+  es.addEventListener('delete',      () => renderLeaderboard());
+
+  loadSessions();
 });

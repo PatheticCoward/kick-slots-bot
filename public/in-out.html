@@ -1,60 +1,54 @@
+<!-- public/in-out.html -->
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
   <title>IN / OUT Slots</title>
   <style>
-    body {
-      font-family: sans-serif;
-      padding: 20px;
-    }
-    /* Flex container to align both sections */
-    .in-out-container {
-      display: flex;
-      gap: 40px;            /* space between IN and OUT */
-      align-items: flex-start; /* align both at top */
-    }
-    .section {
-      flex: 1;
-    }
-    h2 {
-      margin-top: 0;
-    }
-    /* original table styling */
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 10px;
-    }
-    th, td {
-      border: 1px solid #ccc;
-      padding: 8px;
-      text-align: left;
-    }
-    th {
-      background: #eee;
-    }
+    body { font-family: sans-serif; padding: 20px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 20px; }
+    .controls label,
+    .controls select,
+    .controls button { font-size: 14px; padding: 4px 8px; }
+    .in-out-container { display: flex; gap: 40px; align-items: flex-start; }
+    .section { flex: 1; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #eee; }
+    input.payout-input { width: 80px; }
   </style>
 </head>
 <body>
+  <h2>IN / OUT Slots</h2>
+
+  <div class="controls">
+    <label for="sessionSelect">Session:</label>
+    <select id="sessionSelect"></select>
+    <button id="refreshBtn">Refresh</button>
+  </div>
+
   <div class="in-out-container">
-    <!-- IN section -->
     <div class="section">
-      <h2>IN Slots</h2>
+      <h3>IN Slots</h3>
       <table id="in-table">
         <thead>
-          <tr><th>Username</th><th>Slot</th></tr>
+          <tr>
+            <th>Username</th>
+            <th>Slot</th>
+            <th>Payout</th>
+          </tr>
         </thead>
         <tbody></tbody>
       </table>
     </div>
-
-    <!-- OUT section -->
     <div class="section">
-      <h2>OUT Slots</h2>
+      <h3>OUT Slots</h3>
       <table id="out-table">
         <thead>
-          <tr><th>Username</th><th>Slot</th></tr>
+          <tr>
+            <th>Username</th>
+            <th>Slot</th>
+          </tr>
         </thead>
         <tbody></tbody>
       </table>

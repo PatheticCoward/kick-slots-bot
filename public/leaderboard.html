@@ -1,43 +1,51 @@
+<!-- public/leaderboard.html -->
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Bonus Hunt Leaderboard</title>
+  <title>Leaderboard</title>
   <style>
-    body {
-      font-family: sans-serif;
-      padding: 20px;
-    }
-    h2 {
-      margin-top: 0;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 10px;
-    }
-    th, td {
-      border: 1px solid #ccc;
-      padding: 8px;
-      text-align: left;
-    }
-    th {
-      background: #eee;
-    }
+    body { font-family: sans-serif; padding: 20px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 20px; }
+    .controls label,
+    .controls select,
+    .controls button { font-size: 14px; padding: 4px 8px; }
+    .tables-container { display: flex; gap: 40px; align-items: flex-start; }
+    .table-wrapper { flex: 1; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #eee; }
   </style>
 </head>
 <body>
-  <h2>Bonus Hunt Leaderboard</h2>
-  <table id="leaderboard">
-    <thead>
-      <tr>
-        <th>Rank</th>
-        <th>Username</th>
-        <th>Count</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+  <h2>Leaderboard</h2>
+
+  <div class="controls">
+    <label for="sessionSelect">Session:</label>
+    <select id="sessionSelect"></select>
+    <button id="refreshBtn">Refresh</button>
+  </div>
+
+  <div class="tables-container">
+    <div class="table-wrapper">
+      <h3>Slot Count</h3>
+      <table id="count-table">
+        <thead>
+          <tr><th>User</th><th>Count</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="table-wrapper">
+      <h3>Total Payout</h3>
+      <table id="payout-table">
+        <thead>
+          <tr><th>User</th><th>Total Payout</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
 
   <script src="leaderboard.js"></script>
 </body>
