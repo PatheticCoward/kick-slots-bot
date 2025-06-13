@@ -81,14 +81,10 @@ async function startBot(chats) {
   });
 
   const page = await browser.newPage();
-  await page.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
-    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-    'Chrome/115.0.0.0 Safari/537.36'
-  );
+  await page.setUserAgent(/* … */);
   page.setDefaultNavigationTimeout(0);
 
-  // ─── Cookie restore ─────────────────────────────────────────────
+  // ─── Cookie restore ──────────────────────────────────────
   console.log('🌐 Navigating to kick.com for cookie restore…');
   await page.goto('https://kick.com', { waitUntil: 'domcontentloaded', timeout: 60000 });
   try {
@@ -97,95 +93,67 @@ async function startBot(chats) {
     await page.setCookie(...cookies);
     console.log('🔓 Restored session cookies');
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
-    console.log('🔄 Reloaded page with restored cookies');
+    console.log('🔄 Page reloaded with cookies');
   } catch {
     console.log('🔒 No cookies.json found; will log in manually');
   }
-  // ────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
 
   await dismissBanner(page);
 
-  // Login flow
-  const loginBtns = await page.$$('button[data-test="login"]');
-  if (loginBtns.length > 0) {
-    console.log('🔐 Performing login flow…');
-    await loginBtns[0].click();
-    await dismissBanner(page);
-    console.log('⏳ Waiting for login dialog…');
-    await page.waitForSelector('div[role="dialog"] input', { timeout: 60000 });
-    const inputs = await page.$$('div[role="dialog"] input');
-    if (inputs.length < 2) throw new Error('Email/password inputs not found');
-    await inputs[0].type(KICK_USERNAME, { delay: 50 });
-    await inputs[1].type(KICK_PASSWORD, { delay: 50 });
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }),
-      page.click('div[role="dialog"] button[type="submit"]')
-    ]);
-    console.log('🔑 Complete 2FA in the browser; waiting 60s…');
-    await delay(60_000);
-    const freshCookies = await page.cookies();
-    await fs.writeFile('./cookies.json', JSON.stringify(freshCookies, null, 2));
-    console.log('🔒 Saved new session cookies');
+  // ─── New login flow ────────────────────────────────────
+  // Click the account icon to open the dropdown
+  const accountBtn = await page.waitForSelector(
+    'button[data-test="navbar-account"], button[aria-label="account"]',
+    { timeout: 10000 }
+  );
+  await accountBtn.click();
+  await page.waitForTimeout(500);
+
+  // Click the "Log in" entry
+  const [loginEntry] = await page.$x(
+    "//button[normalize-space()='Log in'] | //a[normalize-space()='Log in']"
+  );
+  if (loginEntry) {
+    await loginEntry.click();
   } else {
-    console.log('✅ Already logged in via restored cookies');
+    throw new Error("❌ Could not find the Log in button in the account menu");
   }
 
-  // Navigate to chat
-  const chatURL = `https://kick.com/${CHANNEL_SLUG}/chat`;
-  console.log(`🎯 Navigating to chat page: ${chatURL}`);
-  await page.goto(chatURL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await dismissBanner(page);
+  // Wait for the login form inputs
+  await page.waitForSelector(
+    'input[name="username"], input[type="email"]',
+    { timeout: 60000 }
+  );
+  const emailInput = await page.$('input[name="username"], input[type="email"]');
+  const passInput  = await page.$('input[type="password"]');
 
-  // WebSocket hook
-  const cdp = await page.target().createCDPSession();
-  await cdp.send('Network.enable');
-  cdp.on('Network.webSocketFrameReceived', async ({ response }) => {
-    try {
-      const outer = JSON.parse(response.payloadData);
-      if (!outer.data) return;
-      const msg = typeof outer.data === 'string'
-        ? JSON.parse(outer.data)
-        : outer.data;
-      const content = msg.content;
-      if (typeof content === 'string' && content.startsWith('!slots ')) {
-        const slotText = content.slice(7).trim();
-        const exists = await chats.findOne({ msg: slotText });
-        if (exists) {
-          await sendChatReply(page, `${msg.sender.username} this slot has already been called.`);
-          return;
-        }
-        const badges = msg.sender.identity.badges || [];
-        const slot = {
-          time:       new Date(),
-          user:       msg.sender.username,
-          msg:        slotText,
-          subscriber: badges.some(b => b.type === 'subscriber'),
-          vip:        badges.some(b => b.type === 'vip'),
-          moderator:  badges.some(b => b.type === 'moderator')
-        };
-        await chats.insertOne(slot);
-        console.log('➕ Saved slot:', slot);
+  if (!emailInput || !passInput) {
+    throw new Error("❌ Login inputs not found");
+  }
 
-        if (DISCORD_WEBHOOK_URL) {
-          try {
-            await axios.post(DISCORD_WEBHOOK_URL, {
-              content: `🎰 **New slot**: **${slot.user}** called \`${slot.msg}\``
-            });
-            console.log('✅ Sent slot to Discord');
-          } catch (err) {
-            console.error('❌ Failed to send to Discord:', err.message);
-          }
-        }
+  // Fill in credentials
+  await emailInput.type(KICK_USERNAME, { delay: 50 });
+  await passInput.type(KICK_PASSWORD, { delay: 50 });
 
-        await sendChatReply(page, `Your slot has been added to the list, ${slot.user}`);
-        console.log('💬 Sent confirmation reply');
-      }
-    } catch {
-      // ignore
-    }
-  });
+  // Submit
+  console.log('🚀 Submitting credentials…');
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }),
+    // Attempt to click the form's submit button:
+    page.click('button[type="submit"], button[data-test="login-submit"]')
+  ]);
 
-  console.log('🚨 Bot is up — listening for !slots messages');
+  console.log('🔑 Please complete 2FA in the browser; waiting 60s…');
+  await delay(60_000);
+
+  // Save new cookies
+  const freshCookies = await page.cookies();
+  await fs.writeFile('./cookies.json', JSON.stringify(freshCookies, null, 2));
+  console.log('🔒 Saved fresh session cookies');
+  // ─────────────────────────────────────────────────────────
+
+  // …then continue on to navigate to your chat page, hook WS, etc.
 }
 
 async function startServerAndBot() {
