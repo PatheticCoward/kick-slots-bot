@@ -5,6 +5,7 @@ import express from 'express';
 import path from 'path';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import axios from 'axios';
 import { MongoClient, ObjectId } from 'mongodb';
 
 puppeteer.use(StealthPlugin());
@@ -14,17 +15,20 @@ const {
   KICK_PASSWORD,
   MONGODB_URI,
   CHANNEL_SLUG,
+  DISCORD_WEBHOOK_URL,
   PORT = 3000
 } = process.env;
 
-if (!KICK_USERNAME) throw new Error('Missing KICK_USERNAME');
-if (!KICK_PASSWORD) throw new Error('Missing KICK_PASSWORD');
-if (!MONGODB_URI) throw new Error('Missing MONGODB_URI');
-if (!CHANNEL_SLUG) throw new Error('Missing CHANNEL_SLUG');
+if (!KICK_USERNAME)  throw new Error('Missing KICK_USERNAME');
+if (!KICK_PASSWORD)  throw new Error('Missing KICK_PASSWORD');
+if (!MONGODB_URI)    throw new Error('Missing MONGODB_URI');
+if (!CHANNEL_SLUG)   throw new Error('Missing CHANNEL_SLUG');
+if (!DISCORD_WEBHOOK_URL) {
+  console.warn('⚠️  No DISCORD_WEBHOOK_URL in .env — Discord notifications disabled');
+}
 
 const delay = ms => new Promise(res => setTimeout(res, ms));
 
-// Dismiss cookie banners
 async function dismissBanner(page) {
   for (let txt of ['Accept','Reject']) {
     try {
@@ -34,32 +38,13 @@ async function dismissBanner(page) {
   }
 }
 
-// Type into the Kick chat box and send
 async function sendChatReply(page, text) {
   try {
     await dismissBanner(page);
-
-    const input = await page.waitForSelector(
-      'div[data-test="chat-input"]',
-      { timeout: 5000 }
-    );
-
-    // FOCUS the editor so keyboard events go there:
+    const input = await page.waitForSelector('div[data-test="chat-input"]', { timeout: 5000 });
     await page.evaluate(el => el.focus(), input);
     await delay(50);
-
-    // DEBUG screenshot before typing
-    await input.screenshot({path:'before_type.png'});
-    console.log('📸 [DEBUG] before_type.png');
-
-    // 1) Type via keyboard
     await page.keyboard.type(text, { delay: 25 });
-
-    // DEBUG screenshot after typing
-    await input.screenshot({path:'after_type.png'});
-    console.log('📸 [DEBUG] after_type.png');
-
-    // 2) Send: click send button or press Enter
     const sendBtn =
       await page.$('button[data-test="send"]') ||
       await page.$('button[aria-label="Send"]');
@@ -74,10 +59,9 @@ async function sendChatReply(page, text) {
   }
 }
 
-// Manage sessions
-async function getCurrentSession(sessions, timeoutMs=2*60*60*1000) {
+async function getCurrentSession(sessions, timeoutMs = 2*60*60*1000) {
   const now = new Date();
-  let session = await sessions.find().sort({lastActivity:-1}).limit(1).next();
+  let session = await sessions.find().sort({ lastActivity:-1 }).limit(1).next();
   if (!session || (now - new Date(session.lastActivity) > timeoutMs)) {
     const label = now.toISOString().slice(0,16).replace('T',' ');
     const { insertedId } = await sessions.insertOne({
@@ -91,7 +75,6 @@ async function getCurrentSession(sessions, timeoutMs=2*60*60*1000) {
   return session;
 }
 
-// Main bot
 async function startBot(chats, sessions) {
   console.log('🚨 Starting Kick bot…');
   const currentSession = await getCurrentSession(sessions);
@@ -107,17 +90,16 @@ async function startBot(chats, sessions) {
     'Chrome/115.0.0.0 Safari/537.36'
   );
 
-  // Restore cookies if present
   try {
     const raw = await fs.readFile('./cookies.json','utf8');
     await page.setCookie(...JSON.parse(raw));
     console.log('🔓 Restored cookies');
   } catch {
-    console.log('🔒 No cookies, manual login…');
+    console.log('🔒 No cookies, manual login required');
   }
 
   console.log('🌐 Navigating to kick.com');
-  await page.goto('https://kick.com', {waitUntil:'networkidle2'});
+  await page.goto('https://kick.com', { waitUntil:'networkidle2' });
   await dismissBanner(page);
 
   const loginBtns = await page.$$('button[data-test="login"]');
@@ -142,65 +124,75 @@ async function startBot(chats, sessions) {
   }
 
   const chatURL = `https://kick.com/${CHANNEL_SLUG}/chat`;
-  console.log('🎯 Navigating to', chatURL);
+  console.log('🎯 Navigating to chat page:', chatURL);
   await page.goto(chatURL,{waitUntil:'networkidle2'});
   await dismissBanner(page);
 
-  // Listen for !slot
   const cdp = await page.target().createCDPSession();
   await cdp.send('Network.enable');
-  cdp.on('Network.webSocketFrameReceived', async({response}) => {
+  cdp.on('Network.webSocketFrameReceived', async ({response}) => {
     try {
       const outer = JSON.parse(response.payloadData);
       if (!outer.data) return;
       const msg = typeof outer.data==='string'
         ? JSON.parse(outer.data)
         : outer.data;
-      const text = msg.content;
-      if (text.startsWith('!slot ')) {
-        const slotMsg = text.slice(6).trim();
+      const content = msg.content;
+      if (typeof content==='string' && content.startsWith('!slot ')) {
+        const slotMsg = content.slice(6).trim();
+
         await sessions.updateOne(
-          {_id:currentSession._id},
+          {_id: currentSession._id},
           {$set:{lastActivity:new Date()}}
         );
 
-        // Duplicate?
-        if (await chats.findOne({sessionId:currentSession._id,msg:slotMsg})) {
+        if (await chats.findOne({ sessionId:currentSession._id, msg:slotMsg })) {
           const warning = `${msg.sender.username} this slot has already been called.`;
           console.log('🔍 Duplicate warning:', warning);
           await sendChatReply(page, warning);
           return;
         }
 
-        // Save new slot
         const badges = msg.sender.identity.badges||[];
         const slot = {
-          sessionId: currentSession._id,
-          time: new Date(),
-          user: msg.sender.username,
-          msg: slotMsg,
+          sessionId:  currentSession._id,
+          time:       new Date(),
+          user:       msg.sender.username,
+          msg:        slotMsg,
           subscriber: badges.some(b=>b.type==='subscriber'),
-          vip: badges.some(b=>b.type==='vip'),
-          moderator: badges.some(b=>b.type==='moderator')
+          vip:        badges.some(b=>b.type==='vip'),
+          moderator:  badges.some(b=>b.type==='moderator')
         };
         const { insertedId } = await chats.insertOne(slot);
         slot._id = insertedId;
         console.log('➕ Saved slot', slot);
 
-        // Confirmation
+        // Discord notification via Axios
+        if (DISCORD_WEBHOOK_URL) {
+          try {
+            await axios.post(DISCORD_WEBHOOK_URL, {
+              content: `🎰 New slot **${slot.msg}** called by **${slot.user}**`
+            });
+            console.log('✅ Posted new slot to Discord');
+          } catch (err) {
+            console.error('❌ Failed to post to Discord:', err);
+          }
+        }
+
         const reply = `Your slot has been added ${slot.user}`;
         console.log('🔍 About to send:', reply);
         await sendChatReply(page, reply);
       }
-    } catch {}
+    } catch {
+      // ignore non-chat frames
+    }
   });
 
-  console.log('🚨 Bot is up');
+  console.log('🚨 Bot is up — listening for !slot messages');
 }
 
-// HTTP + REST
 async function startServerAndBot() {
-  const client = new MongoClient(MONGODB_URI,{useUnifiedTopology:true});
+  const client   = new MongoClient(MONGODB_URI,{ useUnifiedTopology:true });
   await client.connect();
   const db       = client.db();
   const chats    = db.collection('chatMessages');
@@ -211,41 +203,60 @@ async function startServerAndBot() {
   app.use(express.json());
   app.use(express.static(path.join(process.cwd(),'public')));
 
-  app.get('/api/sessions', async(req,res)=>{
-    const all = await sessions.find().sort({startTime:-1}).toArray();
+  app.get('/api/sessions', async (req, res) => {
+    const all = await sessions.find().sort({ startTime:-1 }).toArray();
     res.json(all);
   });
 
-  app.get('/api/slots', async(req,res)=>{
-    const f = {};
-    if (req.query.sessionId) f.sessionId = new ObjectId(req.query.sessionId);
-    if (req.query.status)    f.status    = req.query.status;
-    const docs = await chats.find(f).sort({time:1}).toArray();
+  app.get('/api/slots', async (req, res) => {
+    const filter = {};
+    if (req.query.sessionId) filter.sessionId = new ObjectId(req.query.sessionId);
+    if (req.query.status)    filter.status    = req.query.status;
+    const docs = await chats.find(filter).sort({ time:1 }).toArray();
     res.json(docs);
   });
 
-  app.delete('/api/slots/:id', async(req,res)=>{
-    await chats.deleteOne({_id:new ObjectId(req.params.id)});
+  app.delete('/api/slots/:id', async (req, res) => {
+    await chats.deleteOne({ _id:new ObjectId(req.params.id) });
     res.sendStatus(204);
   });
 
-  app.patch('/api/slots/:id', async(req,res)=>{
-    const {status,payout} = req.body;
-    const u = {};
-    if (status) u.status = status;
-    if (payout) u.payout = parseFloat(payout)||0;
-    await chats.updateOne({_id:new ObjectId(req.params.id)},{$set:u});
+  app.patch('/api/slots/:id', async (req, res) => {
+    const { status, payout } = req.body;
+    const update = {};
+    if (status !== undefined) {
+      if (!['IN','OUT'].includes(status)) {
+        return res.status(400).json({ error:'Invalid status' });
+      }
+      update.status = status;
+    }
+    if (payout !== undefined) {
+      const num = parseFloat(payout);
+      if (isNaN(num)) {
+        return res.status(400).json({ error:'Invalid payout' });
+      }
+      update.payout = num;
+    }
+    if (!Object.keys(update).length) {
+      return res.status(400).json({ error:'Nothing to update' });
+    }
+    await chats.updateOne(
+      { _id:new ObjectId(req.params.id) },
+      { $set:update }
+    );
     res.sendStatus(204);
   });
 
-  app.listen(PORT,'0.0.0.0',()=>{
-    console.log(`🖥️ Server at http://0.0.0.0:${PORT}`);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🖥️ Server listening at http://0.0.0.0:${PORT}`);
   });
 
-  startBot(chats,sessions).catch(err=>console.error('💥 Bot error',err));
+  startBot(chats, sessions).catch(err => {
+    console.error('💥 Bot error:', err);
+  });
 }
 
-startServerAndBot().catch(err=>{
-  console.error('💥 Fatal',err);
+startServerAndBot().catch(err => {
+  console.error('💥 Fatal error:', err);
   process.exit(1);
 });
