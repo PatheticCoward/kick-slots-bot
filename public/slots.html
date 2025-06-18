@@ -17,22 +17,39 @@
     .card {
       background:rgba(255,255,255,0.1); backdrop-filter:blur(8px);
       border-radius:8px; border-top:5px solid #E25822;
-      box-shadow:0 4px 12px rgba(0,0,0,0.5); padding:2rem; position:relative; z-index:1;
+      box-shadow:0 4px 12px rgba(0,0,0,0.5); padding:2rem;
+      position:relative; z-index:1;
     }
     h1 { margin:0 0 1rem 0; color:#E25822; font-weight:800; }
+
     .controls { display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem; justify-content:center; }
     .controls label { font-weight:600; color:#ccc; }
-    .controls select, .controls input { padding:.5rem; border:2px solid #E25822; border-radius:4px; background:rgba(0,0,0,0.2); color:#fff; }
+    .controls select, .controls input {
+      padding:.5rem; border:2px solid #E25822; border-radius:4px;
+      background:rgba(0,0,0,0.2); color:#fff;
+    }
     .controls select:focus, .controls input:focus { outline:none; border-color:#B2471A; }
 
     table { width:100%; border-collapse:collapse; font-family:'Poppins',sans-serif; }
     th, td { padding:.75rem; text-align:left; }
-    th { background:rgba(224,106,53,0.8); color:#fff; border-bottom:2px solid #E25822; font-weight:600; }
+    th {
+      background:rgba(224,106,53,0.8); color:#fff;
+      border-bottom:2px solid #E25822; font-weight:600;
+    }
     tr:nth-child(even) td { background:rgba(255,255,255,0.05); }
     td { border-bottom:1px solid rgba(255,255,255,0.2); }
-    button { padding:.3rem .6rem; border-radius:4px; background:rgba(255,255,255,0.1); border:2px solid #E25822; color:#fff; cursor:pointer; }
+
+    button {
+      padding:.3rem .6rem; border-radius:4px;
+      background:rgba(255,255,255,0.1); border:2px solid #E25822;
+      color:#fff; cursor:pointer;
+    }
     button:hover { background:rgba(224,106,53,0.2); }
-    @media(max-width:700px){ .container{padding:0 .5rem;} .controls{flex-direction:column;} }
+
+    @media(max-width:700px){
+      .container{padding:0 .5rem;}
+      .controls{flex-direction:column;}
+    }
   </style>
 </head>
 <body>
@@ -48,13 +65,31 @@
     <div class="card">
       <h1>Slots</h1>
       <div class="controls">
-        <label>Period:<select id="periodSelect"><option>Session</option><option>Today</option><option>7 Days</option><option>30 Days</option><option>Custom</option></select></label>
-        <label>From:<input id="startDate" type="date" disabled /></label>
-        <label>To:<input id="endDate" type="date" disabled /></label>
-        <label>Filter:<input id="searchInput" type="text" placeholder="User or slot…" /></label>
+        <label for="periodSelect">Period:</label>
+        <select id="periodSelect">
+          <option value="session">Session</option>
+          <option value="daily">Today</option>
+          <option value="weekly">7 Days</option>
+          <option value="monthly">30 Days</option>
+          <option value="custom">Custom</option>
+        </select>
+
+        <label for="startDate">From:</label>
+        <input id="startDate" type="date" disabled />
+
+        <label for="endDate">To:</label>
+        <input id="endDate" type="date" disabled />
+
+        <label for="searchInput">Filter:</label>
+        <input id="searchInput" type="text" placeholder="User or slot…" />
       </div>
+
       <table id="slotsTable">
-        <thead><tr><th>Time</th><th>User</th><th>Slot</th><th>Called</th><th>Actions</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Time</th><th>User</th><th>Slot</th><th>Called</th><th>Actions</th>
+          </tr>
+        </thead>
         <tbody></tbody>
       </table>
     </div>
