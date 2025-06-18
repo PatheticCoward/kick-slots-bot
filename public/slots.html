@@ -1,63 +1,64 @@
-<!-- public/slots.html -->
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Slots List</title>
+  <meta charset="UTF-8" />
+  <title>Slots | Redwings944</title>
+  <!-- Poppins Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
   <style>
-    body { font-family: sans-serif; padding: 20px; }
-    .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom:10px; }
-    .controls * { font-size: 14px; padding:4px; }
-    table { width:100%; border-collapse: collapse; margin-top:10px; }
-    th, td { border:1px solid #ccc; padding:8px; text-align:left; }
-    th { background:#eee; }
-    .tables-container { display: flex; gap:20px; }
-    .summary { width:200px; }
+    body { background:#000; font-family:'Poppins',sans-serif; color:#eee; margin:0; padding:0; }
+    .navbar { background:rgba(0,0,0,0.8); border-bottom:3px solid #E25822; display:flex;align-items:center; padding:.5rem 1rem; z-index:2; }
+    .navbar img#logo { height:48px; margin-right:1rem; border:none; }
+    .navbar a { margin-right:1.5rem; color:#E25822; font-weight:600; }
+
+    .container { max-width:1100px; margin:2rem auto; padding:0 1rem; position:relative; }
+    #watermark { position:absolute; top:0; left:50%; transform:translateX(-50%); width:70%; max-width:700px; opacity:.15; z-index:0; }
+
+    .card {
+      background:rgba(255,255,255,0.1); backdrop-filter:blur(8px);
+      border-radius:8px; border-top:5px solid #E25822;
+      box-shadow:0 4px 12px rgba(0,0,0,0.5); padding:2rem; position:relative; z-index:1;
+    }
+    h1 { margin:0 0 1rem 0; color:#E25822; font-weight:800; }
+    .controls { display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem; justify-content:center; }
+    .controls label { font-weight:600; color:#ccc; }
+    .controls select, .controls input { padding:.5rem; border:2px solid #E25822; border-radius:4px; background:rgba(0,0,0,0.2); color:#fff; }
+    .controls select:focus, .controls input:focus { outline:none; border-color:#B2471A; }
+
+    table { width:100%; border-collapse:collapse; font-family:'Poppins',sans-serif; }
+    th, td { padding:.75rem; text-align:left; }
+    th { background:rgba(224,106,53,0.8); color:#fff; border-bottom:2px solid #E25822; font-weight:600; }
+    tr:nth-child(even) td { background:rgba(255,255,255,0.05); }
+    td { border-bottom:1px solid rgba(255,255,255,0.2); }
+    button { padding:.3rem .6rem; border-radius:4px; background:rgba(255,255,255,0.1); border:2px solid #E25822; color:#fff; cursor:pointer; }
+    button:hover { background:rgba(224,106,53,0.2); }
+    @media(max-width:700px){ .container{padding:0 .5rem;} .controls{flex-direction:column;} }
   </style>
 </head>
 <body>
-  <h2>Slots List</h2>
-
-  <div class="controls">
-    <label for="sessionSelect">Session:</label>
-    <select id="sessionSelect"></select>
-
-    <input type="text" id="userFilter" placeholder="Filter by username" />
-    <input type="text" id="slotFilter" placeholder="Filter by slot message" />
-
-    <button id="sortSubBtn" data-active="false">Subscribers First</button>
-    <button id="sortUserBtn" data-active="false">Sort A→Z</button>
-    <button id="clearBtn">Clear</button>
-    <button id="downloadBtn">Download CSV</button>
-    <button onclick="location.reload()">Refresh</button>
-  </div>
-
-  <div class="tables-container">
-    <div style="flex:2;">
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Time</th>
-            <th>Username</th>
-            <th>Slot</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="slots-body"></tbody>
-      </table>
-    </div>
-    <div class="summary">
-      <h3>Summary</h3>
-      <table>
-        <thead>
-          <tr><th>User</th><th>Count</th></tr>
-        </thead>
-        <tbody id="summary-body"></tbody>
+  <header class="navbar">
+    <img id="logo" src="Redwings logo.webp" alt="Logo" />
+    <a href="slots.html">Slots</a>
+    <a href="in-out.html">In/Out</a>
+    <a href="leaderboard.html">Leaderboard</a>
+    <a href="settings.html">Settings</a>
+  </header>
+  <div class="container">
+    <img id="watermark" src="Redwings logo.webp" alt="Logo" />
+    <div class="card">
+      <h1>Slots</h1>
+      <div class="controls">
+        <label>Period:<select id="periodSelect"><option>Session</option><option>Today</option><option>7 Days</option><option>30 Days</option><option>Custom</option></select></label>
+        <label>From:<input id="startDate" type="date" disabled /></label>
+        <label>To:<input id="endDate" type="date" disabled /></label>
+        <label>Filter:<input id="searchInput" type="text" placeholder="User or slot…" /></label>
+      </div>
+      <table id="slotsTable">
+        <thead><tr><th>Time</th><th>User</th><th>Slot</th><th>Called</th><th>Actions</th></tr></thead>
+        <tbody></tbody>
       </table>
     </div>
   </div>
-
   <script src="slots.js"></script>
 </body>
 </html>

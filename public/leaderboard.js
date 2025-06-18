@@ -1,43 +1,91 @@
 // public/leaderboard.js
-document.addEventListener('DOMContentLoaded', () => {
-  const sessSel = document.getElementById('sessionSelect');
-  const countB  = document.querySelector('#count-table tbody');
-  const payB    = document.querySelector('#payout-table tbody');
+const periodSelect = document.getElementById('periodSelect');
+const startInput   = document.getElementById('startDate');
+const endInput     = document.getElementById('endDate');
+const countBody    = document.querySelector('#countTable tbody');
+const payoutBody   = document.querySelector('#payoutTable tbody');
 
-  async function loadSessions() {
-    const res      = await fetch('/api/sessions');
-    const sessions = await res.json();
-    sessSel.innerHTML = sessions
-      .map(s=>`<option value="${s._id}">${s.label}</option>`)
-      .join('');
-    if(sessions.length) sessSel.value=sessions[0]._id;
-    renderLeaderboard();
+function computeDates() {
+  const now = new Date();
+  let start, end = now;
+  switch (periodSelect.value) {
+    case 'daily':
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    case 'weekly':
+      start = new Date(now - 7*24*60*60*1000);
+      break;
+    case 'monthly':
+      start = new Date(now - 30*24*60*60*1000);
+      break;
+    case 'custom':
+      start = startInput.value ? new Date(startInput.value) : null;
+      end   = endInput.value   ? new Date(endInput.value)   : now;
+      break;
+    default:
+      return { start:null, end:null };
+  }
+  return {
+    start: start.toISOString().slice(0,10),
+    end:   end.toISOString().slice(0,10)
+  };
+}
+
+async function loadLeaderboard() {
+  const { start, end } = computeDates();
+  const qp = new URLSearchParams({ status:'IN' });
+  if (periodSelect.value !== 'daily' &&
+      periodSelect.value !== 'weekly' &&
+      periodSelect.value !== 'monthly') {
+    if (start) qp.set('startDate', start);
+    if (end)   qp.set('endDate',   end);
+  } else {
+    if (start) qp.set('startDate', start);
+    if (end)   qp.set('endDate',   end);
   }
 
-  async function renderLeaderboard() {
-    const sid   = sessSel.value;
-    const res   = await fetch(`/api/slots?sessionId=${sid}&status=IN`);
-    const slots = await res.json();
+  const res = await fetch(`/api/slots?${qp}`);
+  const slots = await res.json();
 
-    const cm={}, pm={};
-    slots.forEach(s=>{
-      cm[s.user]=(cm[s.user]||0)+1;
-      pm[s.user]=(pm[s.user]||0)+(parseFloat(s.payout)||0);
+  const counts = {}, sums = {};
+  slots.forEach(s => {
+    counts[s.user] = (counts[s.user]||0) + 1;
+    sums[s.user]   = (sums[s.user]  ||0) + (s.payout||0);
+  });
+
+  countBody.innerHTML = '';
+  Object.entries(counts)
+    .sort((a,b)=>b[1]-a[1])
+    .forEach(([u,c])=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${u}</td><td>${c}</td>`;
+      countBody.append(tr);
     });
 
-    countB.innerHTML = Object.entries(cm)
-      .map(([u,c])=>`<tr><td>${u}</td><td>${c}</td></tr>`).join('');
-    payB.innerHTML   = Object.entries(pm)
-      .map(([u,t])=>`<tr><td>${u}</td><td>${t.toFixed(2)}</td></tr>`).join('');
-  }
+  payoutBody.innerHTML = '';
+  Object.entries(sums)
+    .sort((a,b)=>b[1]-a[1])
+    .forEach(([u,total])=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${u}</td><td>$${total.toFixed(2)}</td>`;
+      payoutBody.append(tr);
+    });
+}
 
-  sessSel.addEventListener('change', renderLeaderboard);
+document.addEventListener('DOMContentLoaded', () => {
+  periodSelect.addEventListener('change', ()=>{
+    const custom = periodSelect.value==='custom';
+    startInput.disabled = !custom;
+    endInput.disabled   = !custom;
+    loadLeaderboard();
+  });
+  startInput.addEventListener('change', loadLeaderboard);
+  endInput  .addEventListener('change', loadLeaderboard);
 
-  // SSE
+  loadLeaderboard();
+
   const es = new EventSource('/events');
-  es.addEventListener('slot',        () => renderLeaderboard());
-  es.addEventListener('update',      () => renderLeaderboard());
-  es.addEventListener('delete',      () => renderLeaderboard());
-
-  loadSessions();
+  ['slot','update','delete'].forEach(evt=>
+    es.addEventListener(evt, loadLeaderboard)
+  );
 });

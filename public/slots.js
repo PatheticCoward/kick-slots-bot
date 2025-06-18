@@ -1,147 +1,161 @@
 // public/slots.js
-document.addEventListener('DOMContentLoaded', () => {
-  const sessSel   = document.getElementById('sessionSelect');
-  const userF     = document.getElementById('userFilter');
-  const slotF     = document.getElementById('slotFilter');
-  const subBtn    = document.getElementById('sortSubBtn');
-  const userBtn   = document.getElementById('sortUserBtn');
-  const clearBtn  = document.getElementById('clearBtn');
-  const dlBtn     = document.getElementById('downloadBtn');
-  const body      = document.getElementById('slots-body');
-  const summary   = document.getElementById('summary-body');
-  let allSlots = [], display = [];
 
-  // fetch sessions once
-  async function loadSessions() {
-    const res = await fetch('/api/sessions');
-    const arr = await res.json();
-    sessSel.innerHTML = arr.map(s => `<option value="${s._id}">${s.label}</option>`).join('');
-    if (arr.length) sessSel.value = arr[0]._id;
-    await loadSlots();
+// ─── Element refs ───────────────────────────────────────────────────────
+const periodSelect = document.getElementById('periodSelect');
+const startInput   = document.getElementById('startDate');
+const endInput     = document.getElementById('endDate');
+const searchInput  = document.getElementById('searchInput');
+const tableBody    = document.querySelector('#slotsTable tbody');
+
+let currentSessionId = null;
+let searchTerm       = '';
+
+// ─── 1) Fetch current session ───────────────────────────────────────────
+async function fetchCurrentSession() {
+  const res      = await fetch('/api/sessions');
+  const sessions = await res.json();
+  if (sessions.length) currentSessionId = sessions[0]._id;
+}
+
+// ─── 2) Compute date filters ─────────────────────────────────────────────
+function computeDates() {
+  const p   = periodSelect.value;
+  const now = new Date();
+  let sd = null, ed = null;
+
+  if (p === 'daily') {
+    sd = new Date(now); sd.setHours(0,0,0,0);
+    ed = now;
+  } else if (p === 'weekly') {
+    sd = new Date(now); sd.setDate(now.getDate()-6); sd.setHours(0,0,0,0);
+    ed = now;
+  } else if (p === 'monthly') {
+    sd = new Date(now); sd.setDate(now.getDate()-29); sd.setHours(0,0,0,0);
+    ed = now;
+  } else if (p === 'custom') {
+    if (startInput.value) sd = new Date(startInput.value);
+    if (endInput.value)   ed = new Date(endInput.value);
   }
 
-  // fetch current session's slots
-  async function loadSlots() {
-    const sid = sessSel.value;
-    const res = await fetch(`/api/slots?sessionId=${sid}`);
-    allSlots = await res.json();
-    display = allSlots.filter(s => !s.status);
-    applySortFilter();
-    render();
+  return { sd, ed };
+}
+
+// ─── 3) Load & render slots ─────────────────────────────────────────────
+async function loadSlots() {
+  const { sd, ed } = computeDates();
+  const qp = new URLSearchParams();
+
+  if (periodSelect.value === 'session' && currentSessionId) {
+    qp.set('sessionId', currentSessionId);
+  } else {
+    if (sd) qp.set('startDate', sd.toISOString().slice(0,10));
+    if (ed) qp.set('endDate',   ed.toISOString().slice(0,10));
   }
 
-  function applySortFilter() {
-    let arr = display.filter(s =>
-      s.user.toLowerCase().includes(userF.value.toLowerCase()) &&
-      s.msg.toLowerCase().includes(slotF.value.toLowerCase())
-    );
-    if (subBtn.dataset.active==='true') {
-      arr.sort((a,b)=> (b.subscriber?1:0)-(a.subscriber?1:0));
+  const url   = `/api/slots?${qp.toString()}`;
+  console.log('🔍 Fetching slots:', url);
+  const slots = await (await fetch(url)).json();
+
+  // clear table
+  tableBody.innerHTML = '';
+
+  // render each slot
+  slots.forEach(s => {
+    // live search filter
+    const u = s.user.toLowerCase();
+    const m = s.msg.toLowerCase();
+    if (searchTerm && !u.includes(searchTerm) && !m.includes(searchTerm)) {
+      return;
     }
-    if (userBtn.dataset.active==='true') {
-      arr.sort((a,b)=> a.user.localeCompare(b.user));
-    }
-    display = arr;
-  }
 
-  function render() {
-    body.innerHTML = display.map((s,i)=>`
-      <tr>
-        <td>${i+1}</td>
-        <td>${new Date(s.time).toLocaleTimeString()}</td>
-        <td>${s.user}${badges(s)}</td>
-        <td>${s.msg}</td>
-        <td>
-          <button onclick="markIn('${s._id}')">IN</button>
-          <button onclick="markOut('${s._id}')">OUT</button>
-          <button onclick="deleteSlot('${s._id}')">Delete</button>
-        </td>
-      </tr>
-    `).join('');
-    const counts = display.reduce((o,s)=>{
-      o[s.user]=(o[s.user]||0)+1;return o;
-    }, {});
-    summary.innerHTML = Object.entries(counts)
-      .map(([u,c])=>`<tr><td>${u}</td><td>${c}</td></tr>`)
-      .join('');
-  }
+    // ← use the persisted outCount field
+    const outCount = s.outCount || 0;
 
-  function badges(s) {
-    const ic=[];
-    if(s.subscriber) ic.push('⭐');
-    if(s.vip)        ic.push('💎');
-    if(s.moderator)  ic.push('🛡️');
-    return ic.length?' '+ic.join(''):'';
-  }
+    const tr = document.createElement('tr');
+    tr.dataset.id = s._id;
+    tr.innerHTML = `
+      <td>${new Date(s.time).toLocaleTimeString()}</td>
+      <td class="user-cell">${s.user}</td>
+      <td class="msg-cell">${s.msg}</td>
+      <td>${outCount}</td>
+      <td>
+        <button class="in-btn">IN</button>
+        <button class="out-btn">OUT</button>
+        <button class="edit-btn">Edit</button>
+        <button class="delete-btn">Delete</button>
+      </td>
+    `;
+    tableBody.append(tr);
+  });
+}
 
-  window.deleteSlot = async id => {
-    await fetch(`/api/slots/${id}`,{method:'DELETE'});
-  };
-  window.markIn = async id => {
-    await fetch(`/api/slots/${id}`,{
+// ─── 4) Button handlers ─────────────────────────────────────────────────
+tableBody.addEventListener('click', async e => {
+  const tr = e.target.closest('tr');
+  if (!tr) return;
+  const id = tr.dataset.id;
+
+  if (e.target.matches('.in-btn')) {
+    await fetch(`/api/slots/${id}`, {
       method:'PATCH',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({status:'IN'})
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ status:'IN' })
     });
-  };
-  window.markOut = async id => {
-    await fetch(`/api/slots/${id}`,{
+    tr.remove();
+  }
+  else if (e.target.matches('.out-btn')) {
+    await fetch(`/api/slots/${id}`, {
       method:'PATCH',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({status:'OUT'})
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ status:'OUT' })
     });
-  };
+    tr.remove();
+  }
+  else if (e.target.matches('.delete-btn')) {
+    await fetch(`/api/slots/${id}`, { method:'DELETE' });
+    tr.remove();
+  }
+  else if (e.target.matches('.edit-btn')) {
+    const cell = tr.querySelector('.msg-cell');
+    const old  = cell.textContent;
+    cell.innerHTML = `
+      <input class="edit-input" value="${old}"/>
+      <button class="save-btn">Save</button>
+      <button class="cancel-btn">Cancel</button>
+    `;
+  }
+  else if (e.target.matches('.save-btn')) {
+    const val = tr.querySelector('.edit-input').value.trim();
+    if (!val) return alert('Slot cannot be empty');
+    await fetch(`/api/slots/${id}`, {
+      method:'PATCH',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ msg: val })
+    });
+    tr.querySelector('.msg-cell').textContent = val;
+  }
+  else if (e.target.matches('.cancel-btn')) {
+    loadSlots();
+  }
+});
 
-  // UI
-  sessSel.addEventListener('change', loadSlots);
-  userF  .addEventListener('input', ()=>{applySortFilter();render();});
-  slotF  .addEventListener('input', ()=>{applySortFilter();render();});
-  subBtn .addEventListener('click', ()=>{
-    subBtn.dataset.active=(subBtn.dataset.active==='true'?'false':'true');
-    applySortFilter();render();
-  });
-  userBtn.addEventListener('click', ()=>{
-    userBtn.dataset.active=(userBtn.dataset.active==='true'?'false':'true');
-    applySortFilter();render();
-  });
-  clearBtn.addEventListener('click', ()=>{
-    userF.value=slotF.value='';
-    subBtn.dataset.active=userBtn.dataset.active='false';
-    applySortFilter();render();
-  });
-  dlBtn.addEventListener('click',()=>{
-    const csv=[
-      ['#','Time','User','Slot'],
-      ...display.map((s,i)=>[
-        i+1,
-        new Date(s.time).toISOString(),
-        s.user,
-        `"${s.msg.replace(/"/g,'""')}"`
-      ])
-    ].map(r=>r.join(',')).join('\n');
-    const b=new Blob([csv],{type:'text/csv'});
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(b);
-    a.download=`slots_${sessSel.value}.csv`;
-    a.click();
-  });
+// ─── 5) Search & filters ─────────────────────────────────────────────────
+searchInput.addEventListener('input', e => {
+  searchTerm = e.target.value.trim().toLowerCase();
+  loadSlots();
+});
+periodSelect.addEventListener('change', loadSlots);
+startInput .addEventListener('change', loadSlots);
+endInput   .addEventListener('change', loadSlots);
 
-  // --- SSE subscription ---
+// ─── 6) Init & SSE ──────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  await fetchCurrentSession();
+  loadSlots();
+
+  // SSE for instant updates
   const es = new EventSource('/events');
-  es.addEventListener('slot', e=>{
-    const slot = JSON.parse(e.data);
-    if(slot.sessionId === sessSel.value) {
-      allSlots.unshift(slot);
-      loadSlots();
-    }
-  });
-  es.addEventListener('update', e=>{
-    const upd = JSON.parse(e.data);
-    // if a slot got marked IN/OUT, reload so it's filtered out
-    if(upd.status) loadSlots();
-  });
-  es.addEventListener('delete', ()=> loadSlots());
-
-  // start
-  loadSessions();
+  ['slot','update','delete','settings'].forEach(evt =>
+    es.addEventListener(evt, loadSlots)
+  );
 });

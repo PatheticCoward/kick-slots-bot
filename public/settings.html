@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Settings | Redwings944</title>
+  <!-- Poppins Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      background: #000;
+      font-family: 'Poppins', sans-serif;
+      color: #eee;
+      margin: 0; padding: 0;
+    }
+    .navbar {
+      background: rgba(0,0,0,0.8);
+      border-bottom: 3px solid #E25822;
+      display: flex; align-items: center;
+      padding: .5rem 1rem; z-index:2;
+    }
+    .navbar img#logo { height:48px; margin-right:1rem; border:none; }
+    .navbar a { margin-right:1.5rem; color:#E25822; font-weight:600; }
+    .container { max-width:900px; margin:2rem auto; padding:0 1rem; position:relative; }
+    #watermark { position:absolute; top:0; left:50%; transform:translateX(-50%); width:70%; opacity:.15; pointer-events:none; }
+    .card {
+      background: rgba(255,255,255,0.1);
+      backdrop-filter: blur(8px);
+      border-radius:8px; border-top:5px solid #E25822;
+      box-shadow:0 4px 12px rgba(0,0,0,0.5);
+      color:#fff; padding:2rem; position:relative;
+    }
+    h1 { margin-top:0; color:#E25822; font-weight:800; }
+    h2 { color:#E25822; font-weight:600; }
+    .limits-row, .timeout-controls { display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1rem; }
+    .limits-row label, .timeout-controls label { flex:1 1 200px; color:#ccc; font-weight:600; }
+    .limits-row input, .timeout-controls input { padding:.5rem; border:2px solid #E25822; border-radius:4px;
+      background:rgba(0,0,0,0.2); color:#fff; font-family:'Poppins',sans-serif; }
+    button { padding:.5rem 1rem; background:#28a745; color:#fff; border:none; border-radius:4px; cursor:pointer; }
+    button:hover { background:#218838; }
+    table { width:100%; border-collapse:collapse; margin-top:1rem; font-family:'Poppins',sans-serif; }
+    th, td { padding:.75rem; text-align:left; }
+    th { background:rgba(224,106,53,0.8); color:#fff; border-bottom:2px solid #E25822; font-weight:600; }
+    tr:nth-child(even) td { background:rgba(255,255,255,0.05); }
+    td { border-bottom:1px solid rgba(255,255,255,0.2); }
+    .remove-timeout-btn { background:#dc3545; }
+    .remove-timeout-btn:hover { background:#c82333; }
+    @media(max-width:700px){ .limits-row,.timeout-controls { flex-direction:column; } }
+  </style>
+</head>
+<body>
+  <header class="navbar">
+    <img id="logo" src="Redwings logo.webp" alt="Logo" />
+    <a href="slots.html">Slots</a>
+    <a href="in-out.html">In/Out</a>
+    <a href="leaderboard.html">Leaderboard</a>
+    <a href="settings.html">Settings</a>
+  </header>
+  <div class="container">
+    <img id="watermark" src="Redwings logo.webp" alt="Background Logo" />
+    <div class="card">
+      <h1>Settings</h1>
+      <h2>Slot Limits & Cooldown</h2>
+      <div class="limits-row">
+        <label><input type="checkbox" id="enableLimits"/> Enable per-role slot limits</label>
+      </div>
+      <div class="limits-row">
+        <label>Subscriber limit:<input type="number" id="subLimit"/></label>
+        <label>VIP limit:<input type="number" id="vipLimit"/></label>
+        <label>Mod limit:<input type="number" id="modLimit"/></label>
+        <label>Follower limit:<input type="number" id="followerLimit"/></label>
+      </div>
+      <div class="limits-row">
+        <label>Out-cooldown (min):<input type="number" id="outCooldown"/></label>
+      </div>
+      <button id="saveSettings">Save Settings</button>
+      <h2>Manage Timeouts</h2>
+      <div class="timeout-controls">
+        <label>User:<input id="timeoutUser" list="userList"/></label>
+        <label>Minutes:<input id="timeoutDuration" type="number"/></label>
+        <button id="addTimeoutBtn">Timeout</button>
+      </div>
+      <table id="timeoutsTable"><thead><tr><th>User</th><th>Time Left</th><th>Action</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+  <script src="settings.js"></script>
+</body>
+</html>
