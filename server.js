@@ -25,10 +25,9 @@ if (!CHANNEL_SLUG)    throw new Error('Missing CHANNEL_SLUG in .env');
 
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
-// ─── In-process cache for settings ─────────────────────────────────────────
 let cachedSettings = null;
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────
 async function dismissBanner(page) {
   for (const txt of ['Accept','Reject']) {
     try {
@@ -40,36 +39,24 @@ async function dismissBanner(page) {
 
 async function sendChatReply(page, text) {
   await dismissBanner(page);
-  const selector = 'div[data-test="chat-input"]';
-  const input    = await page.waitForSelector(selector, { timeout: 5000 });
-  const original = await page.evaluate(el => el.innerHTML, input);
-
+  const sel   = 'div[data-test="chat-input"]';
+  const input = await page.waitForSelector(sel, { timeout: 5000 });
+  const orig  = await page.evaluate(el => el.innerHTML, input);
   await input.focus();
-  await delay(50);
-
-  // clear existing
   await page.keyboard.down('Control');
   await page.keyboard.press('KeyA');
   await page.keyboard.up('Control');
   await page.keyboard.press('Backspace');
-  await delay(25);
-
-  // type reply
   await page.keyboard.type(text, { delay: 25 });
-
-  // send
-  const sendBtn = await page.$('button[data-test="send"]')
-                || await page.$('button[aria-label="Send"]');
-  if (sendBtn) await sendBtn.click();
-  else          await page.keyboard.press('Enter');
-
-  // wait until cleared
+  const btn = await page.$('button[data-test="send"]')
+           || await page.$('button[aria-label="Send"]');
+  if (btn) await btn.click(); else await page.keyboard.press('Enter');
   await page.waitForFunction(
-    (sel, orig) => document.querySelector(sel)?.innerHTML === orig,
+    (sel, o) => document.querySelector(sel)?.innerHTML === o,
     { polling: 100, timeout: 5000 },
-    selector, original
+    sel, orig
   );
-  console.log('💬 Sent confirmation reply:', text);
+  console.log('💬 Sent reply:', text);
 }
 
 async function getCurrentSession(sessions, timeoutMs = 2*60*60*1000) {
@@ -83,33 +70,31 @@ async function getCurrentSession(sessions, timeoutMs = 2*60*60*1000) {
       label
     });
     sess = { _id: insertedId, startTime: now, lastActivity: now, label };
-    console.log('🆕 Created new session:', label);
+    console.log('🆕 New session:', label);
   } else {
     console.log('🔄 Reusing session:', sess.label);
   }
   return sess;
 }
 
-// SSE clients
 const sseClients = [];
 function broadcast(event, data) {
   const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   sseClients.forEach(res => res.write(msg));
 }
 
-// ─── Main ───────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 async function startServerAndBot() {
-  // 1) Connect to MongoDB
+  // 1) MongoDB
   const client   = new MongoClient(MONGODB_URI, { useUnifiedTopology: true });
   await client.connect();
   const db        = client.db();
   const chats     = db.collection('chatMessages');
   const sessions  = db.collection('sessions');
   const settings  = db.collection('settings');
-  const timeouts  = db.collection('timeouts');
   console.log('✅ MongoDB connected');
 
-  // ─── Cache loader ─────────────────────────────────────────────────────────
+  // 2) Cache settings
   async function reloadSettings() {
     const cfg = await settings.findOne({});
     cachedSettings = cfg || {
@@ -121,10 +106,9 @@ async function startServerAndBot() {
       outCooldownMinutes: 10
     };
   }
-  // prime cache
   await reloadSettings();
 
-  // 2) Express + SSE
+  // 3) Express + SSE + static
   const app = express();
   app.use(express.json());
   app.use(express.static(path.join(process.cwd(),'public')));
@@ -137,66 +121,43 @@ async function startServerAndBot() {
     });
     res.write('\n');
     sseClients.push(res);
-    req.on('close', ()=> {
+    req.on('close', () => {
       const idx = sseClients.indexOf(res);
-      if (idx!==-1) sseClients.splice(idx,1);
+      if (idx > -1) sseClients.splice(idx,1);
     });
   });
 
-  // 3) Settings
-  app.get('/api/settings', (req, res) => {
-    res.json(cachedSettings);
-  });
-
+  // 4) Settings API
+  app.get('/api/settings', (req, res) => res.json(cachedSettings));
   app.patch('/api/settings', async (req, res) => {
-    const { enabled, subLimit, vipLimit, modLimit, followerLimit, outCooldownMinutes } = req.body;
+    const {
+      enabled, subLimit,
+      vipLimit, modLimit,
+      followerLimit, outCooldownMinutes
+    } = req.body;
     const u = {};
-    if (enabled           != null) u.enabled            = !!enabled;
-    if (subLimit          != null) u.subLimit           = parseInt(subLimit,10);
-    if (vipLimit          != null) u.vipLimit           = parseInt(vipLimit,10);
-    if (modLimit          != null) u.modLimit           = parseInt(modLimit,10);
-    if (followerLimit     != null) u.followerLimit      = parseInt(followerLimit,10);
-    if (outCooldownMinutes!= null) u.outCooldownMinutes = parseFloat(outCooldownMinutes);
+    if (enabled            != null) u.enabled            = !!enabled;
+    if (subLimit           != null) u.subLimit           = +subLimit;
+    if (vipLimit           != null) u.vipLimit           = +vipLimit;
+    if (modLimit           != null) u.modLimit           = +modLimit;
+    if (followerLimit      != null) u.followerLimit      = +followerLimit;
+    if (outCooldownMinutes != null) u.outCooldownMinutes = +outCooldownMinutes;
     await settings.updateOne({}, { $set: u }, { upsert:true });
-
-    // refresh cache
     await reloadSettings();
-
     broadcast('settings', cachedSettings);
     res.sendStatus(204);
   });
 
-  // 4) Timeouts endpoints
-  app.get('/api/timeouts', async (req, res) => {
-    const arr = await timeouts.find().sort({ expiresAt:1 }).toArray();
-    res.json(arr);
-  });
-  app.post('/api/timeouts', async (req, res) => {
-    const { user, duration } = req.body;
-    if (!user || !duration || duration<=0) {
-      return res.status(400).json({ error:'Invalid user or duration' });
-    }
-    const expiresAt = new Date(Date.now()+duration*60000);
-    const { insertedId } = await timeouts.insertOne({ user, expiresAt });
-    const to = { _id: insertedId, user, expiresAt };
-    broadcast('timeoutAdd', to);
-    res.status(201).json(to);
-  });
-  app.delete('/api/timeouts/:id', async (req, res) => {
-    await timeouts.deleteOne({ _id: new ObjectId(req.params.id) });
-    broadcast('timeoutRemove', { id: req.params.id });
-    res.sendStatus(204);
-  });
+  // 5) Sessions API
+  app.get('/api/sessions', async (req, res) =>
+    res.json(await sessions.find().sort({ startTime:-1 }).toArray())
+  );
 
-  // 5) Sessions
-  app.get('/api/sessions', async (req, res) => {
-    const all = await sessions.find().sort({ startTime:-1 }).toArray();
-    res.json(all);
-  });
-
-  // 6) Slots listing
+  // 6) Slots API with date‐filter logic
   app.get('/api/slots', async (req, res) => {
-    const { sessionId, status, startDate, endDate } = req.query;
+    const { sessionId, status, startDate, endDate, user } = req.query;
+    console.log('🔍 /api/slots', req.query);
+
     const filter = {};
     if (sessionId) {
       filter.sessionId = new ObjectId(sessionId);
@@ -205,251 +166,316 @@ async function startServerAndBot() {
       filter.sessionId = curr._id;
     }
     if (startDate || endDate) {
-      filter.time = {};
-      if (startDate) filter.time.$gte = new Date(startDate);
+      const localCond = {};
+      if (startDate) localCond.$gte = startDate;
+      if (endDate)   localCond.$lte = endDate;
+      let startUtc, endUtc;
+      if (startDate) {
+        const [y,m,d] = startDate.split('-').map(n=>+n);
+        startUtc = new Date(Date.UTC(y,m-1,d,4));
+      }
       if (endDate) {
-        const d = new Date(endDate);
-        d.setDate(d.getDate()+1);
-        d.setMilliseconds(d.getMilliseconds()-1);
-        filter.time.$lte = d;
+        const [y,m,d] = endDate.split('-').map(n=>+n);
+        endUtc = new Date(Date.UTC(y,m-1,d+1,3,59,59,999));
       }
+      filter.$or = [
+        { localDate: localCond },
+        { time: Object.assign({}, startUtc?{ $gte:startUtc }:{}, endUtc?{ $lte:endUtc }:{}) }
+      ];
     }
-    if (status && status!=='ALL') filter.status = status;
-    else if (!status) filter.status = { $exists:false };
-// console.logs removed for filter
+    if (status && status !== 'ALL') filter.status = status;
+    else if (!status && !user)      filter.status = { $exists:false };
+    if (user) filter.user = user;
+
+    console.log('   → filter:', filter);
     try {
-      const docs = await chats.find(filter).sort({ time:1 }).toArray();
-      res.json(docs);
-    } catch(e) {
+      const data = await chats.find(filter).sort({ time:1 }).toArray();
+      res.json(data);
+    } catch (e) {
       console.error(e);
-      res.status(500).json({ error:'Fetch failed' });
+      res.status(500).json({ error:'fetch failed' });
     }
   });
 
-  // 7) Update slot — now using cachedSettings
-  app.patch('/api/slots/:id', async (req, res) => {
-    try {
-      const slotId = new ObjectId(req.params.id);
-      const { status, msg, payout } = req.body;
+ // 7) Update a slot (msg, status or payout only if provided)
+app.patch('/api/slots/:id', async (req, res) => {
+  try {
+    const slotId = new ObjectId(req.params.id);
+    const { status, msg, payout } = req.body;
 
-      // Build update document
-      const updateDoc = {
-        status,
-        statusChangedAt: new Date()
-      };
-      if (msg !== undefined)    updateDoc.msg    = msg;
-      if (payout !== undefined) updateDoc.payout = parseFloat(payout);
+    // Build the update document
+    const updateDoc = { statusChangedAt: new Date() };
+    if (status    !== undefined) updateDoc.status   = status;
+    if (msg       !== undefined) updateDoc.msg      = msg;
+    if (payout    !== undefined) updateDoc.payout   = parseFloat(payout);
 
-      // Enforce limits on IN using cache
-      if (status === 'IN' && cachedSettings.enabled) {
-        const slotDoc = await chats.findOne({ _id: slotId });
-        if (slotDoc) {
-          let limit = cachedSettings.followerLimit;
-          if (slotDoc.moderator)      limit = cachedSettings.modLimit;
-          else if (slotDoc.vip)        limit = cachedSettings.vipLimit;
-          else if (slotDoc.subscriber) limit = cachedSettings.subLimit;
-          const calledCount = await chats.countDocuments({
-            sessionId: slotDoc.sessionId,
-            user:      slotDoc.user
-          });
-          if (calledCount >= limit) {
-            return res
-              .status(400)
-              .json({ error: `Slot limit of ${limit} reached for user ${slotDoc.user}` });
-          }
-        }
-      }
+    // … your limit-check logic here …
 
-      if (status === 'OUT') {
-        const cooldownMinutes = cachedSettings.outCooldownMinutes;
-        const expiresAt = new Date(Date.now() + cooldownMinutes * 60000);
-        updateDoc.cooldownExpiresAt = expiresAt;
-        await chats.updateOne(
-          { _id: slotId },
-          { $set: updateDoc, $inc: { outCount: 1 } }
-        );
-      } else {
-        updateDoc.cooldownExpiresAt = null;
-        await chats.updateOne(
-          { _id: slotId },
-          { $set: updateDoc }
-        );
-      }
-
-      broadcast('update', { id: req.params.id, status });
-      res.sendStatus(204);
-    } catch (err) {
-      console.error('PATCH /api/slots error', err);
-      res.status(500).json({ error: 'Update failed' });
+    // OUT branch: set cooldown + increment
+    if (status === 'OUT') {
+      const expiresAt = new Date(Date.now() + cachedSettings.outCooldownMinutes * 60000);
+      updateDoc.cooldownExpiresAt = expiresAt;
+      await chats.updateOne(
+        { _id: slotId },
+        { $set: updateDoc, $inc: { outCount: 1 } }
+      );
+    } else {
+      // IN or msg-only edits clear any cooldown
+      updateDoc.cooldownExpiresAt = null;
+      await chats.updateOne(
+        { _id: slotId },
+        { $set: updateDoc }
+      );
     }
-  });
+
+    // Broadcast so the in-out page picks it up
+    broadcast('update', { id: req.params.id, status });
+    res.sendStatus(204);
+  } catch (err) {
+    console.error('PATCH /api/slots error', err);
+    res.status(500).json({ error: 'Update failed' });
+  }
+});
+
 
   // 8) Delete slot
   app.delete('/api/slots/:id', async (req, res) => {
-    await chats.deleteOne({ _id: new ObjectId(req.params.id) });
-    broadcast('delete', { id: req.params.id });
+    await chats.deleteOne({ _id:new ObjectId(req.params.id) });
+    broadcast('delete',{ id:req.params.id });
     res.sendStatus(204);
   });
 
-  // 9) Start server
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🖥️ Server listening at http://0.0.0.0:${PORT}`);
-  });
+  // 9) Start HTTP
+  app.listen(PORT, '0.0.0.0', () =>
+    console.log(`🖥️ Server running on http://0.0.0.0:${PORT}`)
+  );
 
-  // 10) Puppeteer Bot
+  // ─── 10) Kick Bot ─────────────────────────────────────────────────────────
   console.log('🚨 Starting Kick bot…');
-  (async () => {
-    const currentSession = await getCurrentSession(sessions);
-    let replyQ = Promise.resolve();
+  const browser = await puppeteer.launch({ headless:true, args:['--no-sandbox'] });
+  const page    = await browser.newPage();
+  await page.setUserAgent(
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+    'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115 Safari/537.36'
+  );
 
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox','--disable-setuid-sandbox']
-    });
-    const page = await browser.newPage();
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
-      'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-      'Chrome/115.0.0.0 Safari/537.36'
-    );
+  try {
+    const raw = await fs.readFile('./cookies.json','utf8');
+    await page.setCookie(...JSON.parse(raw));
+    console.log('🔓 Cookies restored');
+  } catch {
+    console.log('🔒 No cookies found, will login');
+  }
 
-    // restore cookies
-    try {
-      const raw = await fs.readFile('./cookies.json','utf8');
-      await page.setCookie(...JSON.parse(raw));
-      console.log('🔓 Restored session cookies');
-    } catch {
-      console.log('🔒 No cookies.json found; manual login needed');
-    }
+  await page.goto(`https://kick.com/${CHANNEL_SLUG}/chat`, { waitUntil:'networkidle2' });
+  await dismissBanner(page);
 
-    // login flow...
-    console.log('🌐 Navigating to kick.com');
-    await page.goto('https://kick.com',{ waitUntil:'networkidle2' });
-    await dismissBanner(page);
-    const loginBtns = await page.$$('button[data-test="login"]');
-    if (loginBtns.length >= 2) {
-      const [acceptBtn] = await page.$x("//button[normalize-space()='Accept']");
-      if (acceptBtn) { await acceptBtn.click(); await delay(500); }
-      await loginBtns[1].click();
-      await page.waitForSelector('div[role="dialog"] input',{timeout:60000});
-      const inputs = await page.$$('div[role="dialog"] input');
-      await inputs[0].type(KICK_USERNAME,{delay:50});
-      await inputs[1].type(KICK_PASSWORD,{delay:50});
-      await Promise.all([
-        page.waitForNavigation({waitUntil:'networkidle2',timeout:60000}),
-        page.click('div[role="dialog"] button[type="submit"]')
-      ]);
-      console.log('🔑 Waiting for 2FA… 60s');
-      await delay(60000);
-      const fresh = await page.cookies();
-      await fs.writeFile('./cookies.json', JSON.stringify(fresh,null,2));
-      console.log('🔒 Saved session cookies');
-    } else {
-      console.log('✅ Already logged in via cookies');
-    }
+  const currentSession = await getCurrentSession(sessions);
+  let replyQ = Promise.resolve();
 
-    // go to chat
-    const chatURL = `https://kick.com/${CHANNEL_SLUG}/chat`;
-    console.log(`🎯 Navigating to chat: ${chatURL}`);
-    await page.goto(chatURL,{waitUntil:'networkidle2'});
-    await dismissBanner(page);
+  const cdp = await page.target().createCDPSession();
+  await cdp.send('Network.enable');
+  cdp.on('Network.webSocketFrameReceived', ({ response }) => {
+    let outer;
+    try { outer = JSON.parse(response.payloadData); } catch { return; }
+    if (!outer.data) return;
 
-    const cdp = await page.target().createCDPSession();
-    await cdp.send('Network.enable');
-    cdp.on('Network.webSocketFrameReceived', ({ response }) => {
-      let outer;
-      try { outer = JSON.parse(response.payloadData); } catch { return; }
-      if (!outer.data) return;
-      let msg = typeof outer.data === 'string'
-             ? JSON.parse(outer.data)
-             : outer.data;
-      const text = msg.content?.trim();
-      if (!text) return;
-      const user = msg.sender.username;
+    const msg      = typeof outer.data==='string'
+                   ? JSON.parse(outer.data)
+                   : outer.data;
+    const textRaw  = msg.content?.trim();
+    if (!textRaw) return;
+    const user     = msg.sender.username;
+    const textLow  = textRaw.toLowerCase();
+    if (user.toLowerCase() === KICK_USERNAME.toLowerCase()) return;
 
-      // ---- !slot command ----
-      if (text.startsWith('!slot ')) {
-        const slotText = text.slice(6).trim();
-        console.log('🛎️ Received slot:', slotText, 'from', user);
+    // ─── !slot ────────────────────────────────────────────────────────────────
+    if (textLow.startsWith('!slot ')) {
+      const slotText = textRaw.slice(6).trim();
+      console.log('🛎️ !slot:', slotText, 'by', user);
 
-        replyQ = replyQ.then(async () => {
-          // 1) Timeout check
-          const to = await timeouts.find({ user }).sort({ expiresAt: -1 }).limit(1).next();
-          if (to && new Date(to.expiresAt) > new Date()) {
-            const mins = Math.ceil((new Date(to.expiresAt) - Date.now()) / 60000);
-            return sendChatReply(page,
-              `@${user}, you are timed out for ${mins} more minute${mins > 1 ? 's' : ''}.`
-            );
-          }
-
-          // 2) SLOT LIMITS check using cache
-          if (cachedSettings.enabled) {
-            const badges = msg.sender.identity.badges || [];
-            let limit = cachedSettings.followerLimit;
-            if (badges.some(b => b.type === 'moderator'))      limit = cachedSettings.modLimit;
-            else if (badges.some(b => b.type === 'vip'))        limit = cachedSettings.vipLimit;
-            else if (badges.some(b => b.type === 'subscriber')) limit = cachedSettings.subLimit;
-
-            const calledCount = await chats.countDocuments({
-              sessionId:  currentSession._id,
-              user
-            });
-            if (calledCount >= limit) {
-              return sendChatReply(page,
-                `@${user}, you have reached your slot limit of ${limit}.`
-              );
-            }
-          }
-
-          // 3) Duplicate & cooldown...
-          const existing = await chats.findOne({ sessionId: currentSession._id, msg: slotText }, { sort: { time: -1 } });
-          if (existing) {
-            if (existing.status === 'OUT') {
-              const now = Date.now(), exp = new Date(existing.cooldownExpiresAt).getTime();
-              if (exp > now) {
-                const mins = Math.ceil((exp - now) / 60000);
-                return sendChatReply(page,
-                  `This slot is on cooldown for the next ${mins} minutes.`
-                );
-              }
-            } else {
-              return sendChatReply(page,
-                `@${user}, this slot has already been called.`
-              );
-            }
-          }
-
-          // 4) Insert new slot...
-          const badges = msg.sender.identity.badges || [];
-          const slot = {
-            sessionId:  currentSession._id,
-            time:       new Date(),
-            user,
-            msg:        slotText,
-            subscriber: badges.some(b => b.type === 'subscriber'),
-            vip:        badges.some(b => b.type === 'vip'),
-            moderator:  badges.some(b => b.type === 'moderator'),
-            outCount:   0
-          };
-          const { insertedId } = await chats.insertOne(slot);
-          slot._id = insertedId;
-          broadcast('slot', slot);
-
-          // discord webhook
-          if (DISCORD_WEBHOOK_URL) {
-            axios.post(DISCORD_WEBHOOK_URL, { content: `🎰 New slot **${slotText}** by **${user}**` }).catch(console.error);
-          }
-
-          // 5) confirmation
+      replyQ = replyQ.then(async () => {
+        // DUPLICATE CHECK:
+        const dup = await chats.findOne({
+          sessionId: currentSession._id,
+          msg:       slotText
+        });
+        if (dup) {
           return sendChatReply(page,
-            `Your 🎰 '${slotText}' has been added to the list @${user}!`
+            `@${user}: 🎰 ${slotText} has already been called!`
           );
-        }).catch(console.error);
-      }
+        }
 
-      // handle other commands...
-    });
-  })();
+        // otherwise insert new
+        const now = new Date();
+        const slot = {
+          sessionId: currentSession._id,
+          time:      now,
+          localDate: now.toLocaleDateString('en-CA',{ timeZone:'America/New_York' }),
+          user,
+          msg:       slotText,
+          moderator:  msg.sender.identity?.badges?.some(b=>b.type==='moderator')   || false,
+          vip:         msg.sender.identity?.badges?.some(b=>b.type==='vip')         || false,
+          subscriber:  msg.sender.identity?.badges?.some(b=>b.type==='subscriber') || false,
+          outCount:  0
+        };
+        const { insertedId } = await chats.insertOne(slot);
+        slot._id = insertedId;
+        broadcast('slot', slot);
+
+        if (DISCORD_WEBHOOK_URL) {
+          await axios.post(DISCORD_WEBHOOK_URL, {
+            content: `🎰 New slot **${slotText}** by **${user}**`
+          }).catch(console.error);
+        }
+
+        return sendChatReply(page,
+          `Your 🎰 '${slotText}' has been added to the list @${user}!`
+        );
+      }).catch(console.error);
+
+      return;
+    }
+
+    // ─── !myslots ─────────────────────────────────────────────────────────────
+    if (textLow === '!myslots') {
+      console.log('🛎️ !myslots by', user);
+      replyQ = replyQ.then(async () => {
+        const all = await chats.find({
+          sessionId: currentSession._id,
+          user
+        }).sort({ time:1 }).toArray();
+
+        const queued = all.filter(s=>!s.status).map(s=>s.msg);
+        const ins    = all.filter(s=>s.status==='IN').map(s=>s.msg);
+        const outs   = all.filter(s=>s.status==='OUT').map(s=>s.msg);
+
+        const qText = queued.length ? queued.join(', ') : 'none';
+        const iText = ins.length    ? ins.join(', ')    : 'none';
+        const oText = outs.length   ? outs.join(', ')   : 'none';
+
+        const reply = `@${user} | 📋: ${qText} | ✅: ${iText} | ❌: ${oText}`;
+        return sendChatReply(page, reply);
+      }).catch(console.error);
+      return;
+    }
+
+    // ─── !topD ─────────────────────────────────────────────────────────────
+    if (textLow === '!topd') {
+      console.log(`🔍 !topD by ${user}`);
+      replyQ = replyQ.then(async () => {
+        try {
+          const now = new Date();
+          const st = new Date(now);
+          st.setHours(0,0,0,0);
+          const sd = st.toISOString().slice(0,10);
+          const ed = now.toISOString().slice(0,10);
+          const url = `http://localhost:${PORT}/api/slots?status=IN&startDate=${sd}&endDate=${ed}`;
+          console.log('Fetching TopD:', url);
+          const resp = await axios.get(url);
+          const data = resp.data;
+
+          const counts = {};
+          data.forEach(s => {
+            counts[s.user] = (counts[s.user] || 0) + 1;
+          });
+          const top5 = Object.entries(counts)
+                        .sort((a,b) => b[1] - a[1])
+                        .slice(0,5);
+          const list = top5.length
+            ? top5.map(([u,c]) => `${u}(${c})`).join(', ')
+            : 'none';
+          const reply = `🏆 Top Daily: ${list}`;
+          return sendChatReply(page, reply);
+
+        } catch (err) {
+          console.error('!topD error', err);
+          return sendChatReply(page,
+            `@${user}, could not fetch daily leaderboard.`);
+        }
+      }).catch(console.error);
+      return;
+    }
+
+    // ─── !topW ─────────────────────────────────────────────────────────────
+    if (textLow === '!topw') {
+      console.log(`🔍 !topW by ${user}`);
+      replyQ = replyQ.then(async () => {
+        try {
+          const now = new Date();
+          const st = new Date(now);
+          st.setDate(now.getDate() - 6);
+          st.setHours(0,0,0,0);
+          const sd = st.toISOString().slice(0,10);
+          const ed = now.toISOString().slice(0,10);
+          const url = `http://localhost:${PORT}/api/slots?status=IN&startDate=${sd}&endDate=${ed}`;
+          console.log('Fetching TopW:', url);
+          const resp = await axios.get(url);
+          const data = resp.data;
+
+          const counts = {};
+          data.forEach(s => {
+            counts[s.user] = (counts[s.user] || 0) + 1;
+          });
+          const top5 = Object.entries(counts)
+                        .sort((a,b) => b[1] - a[1])
+                        .slice(0,5);
+          const list = top5.length
+            ? top5.map(([u,c]) => `${u}(${c})`).join(', ')
+            : 'none';
+          const reply = `🏆 Top Weekly: ${list}`;
+          return sendChatReply(page, reply);
+
+        } catch (err) {
+          console.error('!topW error', err);
+          return sendChatReply(page,
+            `@${user}, could not fetch weekly leaderboard.`);
+        }
+      }).catch(console.error);
+      return;
+    }
+
+    // ─── !topM ─────────────────────────────────────────────────────────────
+    if (textLow === '!topm') {
+      console.log(`🔍 !topM by ${user}`);
+      replyQ = replyQ.then(async () => {
+        try {
+          const now = new Date();
+          const st = new Date(now);
+          st.setDate(now.getDate() - 29);
+          st.setHours(0,0,0,0);
+          const sd = st.toISOString().slice(0,10);
+          const ed = now.toISOString().slice(0,10);
+          const url = `http://localhost:${PORT}/api/slots?status=IN&startDate=${sd}&endDate=${ed}`;
+          console.log('Fetching TopM:', url);
+          const resp = await axios.get(url);
+          const data = resp.data;
+
+          const counts = {};
+          data.forEach(s => {
+            counts[s.user] = (counts[s.user] || 0) + 1;
+          });
+          const top5 = Object.entries(counts)
+                        .sort((a,b) => b[1] - a[1])
+                        .slice(0,5);
+          const list = top5.length
+            ? top5.map(([u,c]) => `${u}(${c})`).join(', ')
+            : 'none';
+          const reply = `🏆 Top Monthly: ${list}`;
+          return sendChatReply(page, reply);
+
+        } catch (err) {
+          console.error('!topM error', err);
+          return sendChatReply(page,
+            `@${user}, could not fetch monthly leaderboard.`);
+        }
+      }).catch(console.error);
+      return;
+    }
+
+    // … any other commands …
+
+  });
 }
 
 startServerAndBot().catch(err => {

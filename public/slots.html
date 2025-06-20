@@ -30,7 +30,7 @@
     }
     .controls select:focus, .controls input:focus { outline:none; border-color:#B2471A; }
 
-    table { width:100%; border-collapse:collapse; font-family:'Poppins',sans-serif; }
+    table { width:100%; border-collapse:collapse; }
     th, td { padding:.75rem; text-align:left; }
     th {
       background:rgba(224,106,53,0.8); color:#fff;
@@ -45,6 +45,16 @@
       color:#fff; cursor:pointer;
     }
     button:hover { background:rgba(224,106,53,0.2); }
+
+    /* ─── Badges ─────────────────────────────────────────────────────────── */
+    .badge {
+      display:inline-block; margin-left:0.25rem;
+      padding:0.15rem 0.4rem; border-radius:4px;
+      font-size:0.75rem; font-weight:600; vertical-align:middle;
+    }
+    .badge.mod { background:#007bff; color:#fff; }
+    .badge.vip { background:#6f42c1; color:#fff; }
+    .badge.sub { background:#28a745; color:#fff; }
 
     @media(max-width:700px){
       .container{padding:0 .5rem;}
@@ -73,13 +83,10 @@
           <option value="monthly">30 Days</option>
           <option value="custom">Custom</option>
         </select>
-
         <label for="startDate">From:</label>
         <input id="startDate" type="date" disabled />
-
         <label for="endDate">To:</label>
         <input id="endDate" type="date" disabled />
-
         <label for="searchInput">Filter:</label>
         <input id="searchInput" type="text" placeholder="User or slot…" />
       </div>

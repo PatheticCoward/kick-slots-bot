@@ -3,150 +3,102 @@
 <head>
   <meta charset="UTF-8" />
   <title>In / Out | Redwings944</title>
-  <!-- Poppins -->
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
   <style>
-    /* ─── Base ───────────────────────────────────────────────────────────── */
     body {
-      background: #000;
-      color: #eee;
-      margin: 0;
-      padding: 0;
+      background: #000; color: #eee; margin: 0; padding: 0;
       font-family: 'Poppins', sans-serif;
+      font-size: 0.9rem; /* overall slightly smaller */
     }
     a { text-decoration: none; }
 
-    /* ─── Navbar ─────────────────────────────────────────────────────────── */
+    /* Navbar */
     .navbar {
       background: rgba(0,0,0,0.8);
       border-bottom: 3px solid #E25822;
-      display: flex;
-      align-items: center;
-      padding: .5rem 1rem;
-      z-index: 2;
+      display: flex; align-items: center; padding: .5rem 1rem;
     }
-    .navbar img#logo {
-      height: 48px;
-      margin-right: 1rem;
-      border: none;
-    }
-    .navbar a {
-      margin-right: 1.5rem;
-      color: #E25822;
-      font-weight: 600;
-      transition: color .2s;
-    }
-    .navbar a:hover {
-      color: #B2471A;
-    }
+    #logo { height: 48px; margin-right: 1rem; }
+    .navbar a { margin-right: 1.5rem; color: #E25822; font-weight: 600; }
 
-    /* ─── Container & Watermark ────────────────────────────────────────── */
+    /* Container & watermark */
     .container {
-      max-width: 1200px;
-      margin: 2rem auto;
-      padding: 0 1rem;
-      position: relative;
-      z-index: 1;
+      max-width: 1200px; margin: 2rem auto; padding: 0 1rem; position: relative;
     }
     #watermark {
-      position: absolute;
-      top: 0; left: 50%;
+      position: absolute; top: 0; left: 50%;
       transform: translateX(-50%);
-      width: 70%;
-      max-width: 700px;
-      opacity: 0.15;
-      z-index: 0;
-      pointer-events: none;
+      width: 70%; max-width: 700px; opacity: .15; pointer-events: none;
     }
 
-    /* ─── Card ───────────────────────────────────────────────────────────── */
+    /* Card */
     .card {
       background: rgba(255,255,255,0.1);
       backdrop-filter: blur(8px);
-      border-radius: 8px;
-      border-top: 5px solid #E25822;
+      border-radius: 8px; border-top: 5px solid #E25822;
       box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-      padding: 2rem;
-      position: relative;
-      z-index: 1;
+      padding: 1.5rem; display: flex; flex-direction: column;
+      width: 100%; box-sizing: border-box;
+      font-size: 0.95rem;
     }
     h1 {
-      margin-top: 0;
-      color: #E25822;
-      text-align: center;
-      font-weight: 800;
+      margin: 0 0 1rem; color: #E25822;
+      text-align: center; font-weight: 800;
+      font-size: 1.75rem;
     }
 
-    /* ─── Controls ───────────────────────────────────────────────────────── */
+    /* Controls */
     .controls {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      align-items: center;
-      gap: 1rem;
-      margin-bottom: 1.5rem;
+      display: flex; flex-wrap: wrap; justify-content: center;
+      align-items: center; gap: 1rem; margin-bottom: 1.5rem;
     }
-    .controls label {
-      font-weight: 600;
-      color: #ccc;
-    }
+    .controls label { font-weight: 600; color: #ccc; }
     .controls select,
     .controls input[type="date"] {
-      padding: .5rem;
-      border: 2px solid #E25822;
-      border-radius: 4px;
-      background: rgba(0,0,0,0.2);
-      color: #fff;
-    }
-    .controls select:focus,
-    .controls input:focus {
-      outline: none;
-      border-color: #B2471A;
+      padding: .5rem; border: 2px solid #E25822; border-radius: 4px;
+      background: rgba(0,0,0,0.2); color: #fff; min-width: 8rem;
+      font-size: 0.9rem;
     }
 
-    /* ─── Tables ─────────────────────────────────────────────────────────── */
+    /* Tables grid */
     .tables {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 2rem;
+      grid-column-gap: 4rem;  /* more horizontal spacing */
+      grid-row-gap: 2rem;     /* a little vertical spacing */
+    }
+    .table-panel {
+      display: flex; flex-direction: column;
     }
     .table-panel h2 {
-      color: #E25822;
-      margin-bottom: .5rem;
-      font-weight: 700;
+      color: #E25822; margin: 0 0 .5rem; font-weight: 700;
+      font-size: 1.4rem;
     }
     .table-panel label {
-      display: block;
-      margin-bottom: .5rem;
-      font-weight: 600;
-      color: #ccc;
+      font-weight: 600; color: #ccc; margin-bottom: .5rem;
     }
     .table-panel input {
-      width: 100%;
-      padding: .5rem;
-      margin-bottom: 1rem;
-      border: 2px solid #E25822;
-      border-radius: 4px;
-      background: rgba(0,0,0,0.2);
-      color: #fff;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: auto;
+      padding: .5rem; border: 2px solid #E25822; border-radius: 4px;
+      background: rgba(0,0,0,0.2); color: #fff;
+      margin-bottom: 1rem; width: 100%; box-sizing: border-box;
+      font-size: 0.9rem;
     }
 
-    /* center-align all cells */
+    /* Table core styles */
+    table {
+      width: 100%; border-collapse: collapse;
+      table-layout: fixed;
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+    }
     th, td {
-      padding: .75rem;
-      text-align: center;
-      vertical-align: middle;
+      padding: .5rem .75rem; text-align: left; vertical-align: middle;
+      white-space: normal; word-wrap: break-word; overflow: hidden;
+      line-height: 1.4;
     }
     th {
-      background: rgba(224,106,53,0.8);
-      color: #fff;
-      border-bottom: 2px solid #E25822;
-      font-weight: 600;
+      background: rgba(224,106,53,0.8); color: #fff;
+      border-bottom: 2px solid #E25822; font-weight: 600;
     }
     tr:nth-child(even) td {
       background: rgba(255,255,255,0.05);
@@ -155,88 +107,64 @@
       border-bottom: 1px solid rgba(255,255,255,0.2);
     }
 
-    /* prevent Time cell from wrapping or cutting off */
-    #inTable td:first-child,
-    #outTable td:first-child,
-    #inTable th:first-child,
-    #outTable th:first-child {
-      white-space: nowrap;
-      width: 1%;
-    }
+    /* Column widths */
+    #inTable th:nth-child(1), #inTable td:nth-child(1) { width: 12%; min-width: 5rem; }
+    #inTable th:nth-child(2), #inTable td:nth-child(2) { width: 20%; }
+    #inTable th:nth-child(3), #inTable td:nth-child(3) { width: 35%; }
+    #inTable th:nth-child(4), #inTable td:nth-child(4) { width: 15%; min-width: 4rem; }
+    #inTable th:nth-child(5), #inTable td:nth-child(5) { width: 18%; min-width: 7rem; }
 
-    /* payout input width */
-    #inTable td:nth-child(4) input {
-      width: 3rem;
-    }
+    #outTable th:nth-child(1), #outTable td:nth-child(1) { width: 12%; min-width: 5rem; }
+    #outTable th:nth-child(2), #outTable td:nth-child(2) { width: 20%; }
+    #outTable th:nth-child(3), #outTable td:nth-child(3) { width: 35%; }
+    #outTable th:nth-child(4), #outTable td:nth-child(4) { width: 15%; min-width: 4rem; }
+    #outTable th:nth-child(5), #outTable td:nth-child(5) { width: 18%; min-width: 7rem; }
 
-    /* align buttons in last column */
+    /* Action buttons cell */
     #inTable td:last-child,
     #outTable td:last-child {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: .5rem;
-      white-space: nowrap;
+      display: flex; align-items: center; gap: .5rem;
+      justify-content: center; white-space: nowrap;
     }
-    #inTable td:last-child button,
-    #outTable td:last-child button {
-      margin: 0;
-      padding: .4rem .8rem;
-      font-family: 'Poppins', sans-serif;
-      font-weight: 600;
-      line-height: 1;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      color: #fff;
+    .save-btn, .delete-btn {
+      border: none; border-radius: 4px; padding: .4rem .8rem;
+      color: #fff; font-weight: 600; cursor: pointer;
+      line-height: 1.2; font-size: 0.85rem;
     }
-    #inTable td:last-child button.save-btn,
-    #outTable td:last-child button.save-btn {
-      background: #28a745;
-    }
-    #inTable td:last-child button.delete-btn,
-    #outTable td:last-child button.delete-btn {
-      background: #dc3545;
-    }
-    #inTable td:last-child button:hover,
-    #outTable td:last-child button:hover {
-      opacity: .9;
+    .save-btn { background: #28a745; }
+    .delete-btn { background: #dc3545; }
+
+    /* Payout input */
+    .payout-input {
+      width: 100%; max-width: 4.5rem;
+      padding: .4rem .5rem;
+      border: 2px solid #E25822; border-radius: 4px;
+      background: rgba(0,0,0,0.2); color: #fff;
+      box-sizing: border-box;
+      height: 2.2rem;
+      font-size: 0.9rem;
     }
 
-    /* ─── Equalize row heights ─────────────────────────────────────────────── */
-    /* force every row in both tables to the same height */
-    #inTable tbody tr,
-    #outTable tbody tr {
-      height: 3rem;
+    /* Badges */
+    .badge {
+      display: inline-block; margin-left: .25rem; padding: .15rem .4rem;
+      border-radius: 4px; font-size: .7rem; font-weight: 600;
+      vertical-align: middle; white-space: nowrap;
     }
-    /* ensure content doesn’t overflow that height */
-    #inTable td,
-    #outTable td {
-      max-height: 3rem;
-      overflow: hidden;
-    }
+    .badge.mod { background: #007bff; color: #fff; }
+    .badge.vip { background: #6f42c1; color: #fff; }
+    .badge.sub { background: #28a745; color: #fff; }
 
-    /* ─── Responsive ─────────────────────────────────────────────────────── */
+    /* Responsive */
     @media (max-width: 840px) {
-      .controls {
-        flex-direction: column;
-        align-items: stretch;
-      }
-      .tables {
-        grid-template-columns: 1fr;
-      }
-      .container {
-        padding: 0 .5rem;
-      }
-      .navbar a {
-        margin-right: 1rem;
-      }
+      .controls { flex-direction: column; align-items: stretch; }
+      .tables { grid-template-columns: 1fr; gap: 1.5rem; }
     }
   </style>
 </head>
 <body>
   <header class="navbar">
-    <img id="logo" src="Redwings logo.webp" alt="Redwings944 Logo" />
+    <img id="logo" src="Redwings logo.webp" alt="Logo" />
     <a href="slots.html">Slots</a>
     <a href="in-out.html">In / Out</a>
     <a href="leaderboard.html">Leaderboard</a>
@@ -244,7 +172,7 @@
   </header>
 
   <div class="container">
-    <img id="watermark" src="Redwings logo.webp" alt="Background Logo" />
+    <img id="watermark" src="Redwings logo.webp" alt="Watermark" />
     <div class="card">
       <h1>In / Out</h1>
 
@@ -268,7 +196,6 @@
           <h2>IN</h2>
           <label for="filterIn">Filter IN:</label>
           <input id="filterIn" type="text" placeholder="User or slot…" />
-
           <table id="inTable">
             <thead>
               <tr>
@@ -279,9 +206,7 @@
                 <th>Action</th>
               </tr>
             </thead>
-            <tbody>
-              <!-- in-out.js injects rows here -->
-            </tbody>
+            <tbody></tbody>
           </table>
         </div>
 
@@ -289,7 +214,6 @@
           <h2>OUT</h2>
           <label for="filterOut">Filter OUT:</label>
           <input id="filterOut" type="text" placeholder="User or slot…" />
-
           <table id="outTable">
             <thead>
               <tr>
@@ -300,9 +224,7 @@
                 <th>Action</th>
               </tr>
             </thead>
-            <tbody>
-              <!-- in-out.js injects rows here -->
-            </tbody>
+            <tbody></tbody>
           </table>
         </div>
       </div>

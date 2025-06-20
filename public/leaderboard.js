@@ -1,91 +1,111 @@
 // public/leaderboard.js
+
 const periodSelect = document.getElementById('periodSelect');
 const startInput   = document.getElementById('startDate');
 const endInput     = document.getElementById('endDate');
 const countBody    = document.querySelector('#countTable tbody');
 const payoutBody   = document.querySelector('#payoutTable tbody');
 
+// ─── Helper: format Date as local YYYY-MM-DD in Eastern ────────────────
+function formatLocalDate(d) {
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+
 function computeDates() {
-  const now = new Date();
-  let start, end = now;
-  switch (periodSelect.value) {
-    case 'daily':
-      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      break;
-    case 'weekly':
-      start = new Date(now - 7*24*60*60*1000);
-      break;
-    case 'monthly':
-      start = new Date(now - 30*24*60*60*1000);
-      break;
-    case 'custom':
-      start = startInput.value ? new Date(startInput.value) : null;
-      end   = endInput.value   ? new Date(endInput.value)   : now;
-      break;
-    default:
-      return { start:null, end:null };
+  const p   = periodSelect.value;
+  const now = new Date(
+    new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })
+  );
+  let sd = new Date(now), ed = new Date(now);
+
+  if (p === 'weekly')  sd.setDate(sd.getDate() - 6);
+  if (p === 'monthly') sd.setDate(sd.getDate() - 29);
+  if (p === 'custom') {
+    if (startInput.value) sd = new Date(`${startInput.value}T00:00:00`);
+    if (endInput.value)   ed = new Date(`${endInput.value}T00:00:00`);
   }
-  return {
-    start: start.toISOString().slice(0,10),
-    end:   end.toISOString().slice(0,10)
-  };
+
+  return { sd, ed };
 }
 
 async function loadLeaderboard() {
-  const { start, end } = computeDates();
-  const qp = new URLSearchParams({ status:'IN' });
-  if (periodSelect.value !== 'daily' &&
-      periodSelect.value !== 'weekly' &&
-      periodSelect.value !== 'monthly') {
-    if (start) qp.set('startDate', start);
-    if (end)   qp.set('endDate',   end);
+  const { sd, ed } = computeDates();
+  const qp = new URLSearchParams();
+
+  if (periodSelect.value === 'custom') {
+    if (startInput.value) qp.set('startDate', startInput.value);
+    if (endInput.value)   qp.set('endDate',   endInput.value);
   } else {
-    if (start) qp.set('startDate', start);
-    if (end)   qp.set('endDate',   end);
+    qp.set('startDate', formatLocalDate(sd));
+    qp.set('endDate',   formatLocalDate(ed));
   }
 
-  const res = await fetch(`/api/slots?${qp}`);
-  const slots = await res.json();
+  console.log('🔍 [leaderboard] Params:', qp.toString());
 
-  const counts = {}, sums = {};
-  slots.forEach(s => {
-    counts[s.user] = (counts[s.user]||0) + 1;
-    sums[s.user]   = (sums[s.user]  ||0) + (s.payout||0);
-  });
+  // — Slot Counts —
+  const urlCount = `/api/slots?status=IN&${qp.toString()}`;
+  console.log('→ Fetch Count:', urlCount);
+  const res1 = await fetch(urlCount);
+  const data1 = await res1.json();
+
+  // tally and sort descending
+  const counts = data1.reduce((acc, s) => {
+    acc[s.user] = (acc[s.user] || 0) + 1;
+    return acc;
+  }, {});
+
+  const sortedCounts = Object.entries(counts)
+    .sort(([,a], [,b]) => b - a);
 
   countBody.innerHTML = '';
-  Object.entries(counts)
-    .sort((a,b)=>b[1]-a[1])
-    .forEach(([u,c])=>{
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${u}</td><td>${c}</td>`;
-      countBody.append(tr);
-    });
+  sortedCounts.forEach(([user, count]) => {
+    // find one record for badges
+    const rec = data1.find(s => s.user === user);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>
+        ${user}
+        ${rec.moderator  ? '<span class="badge mod">MOD</span>' : ''}
+        ${rec.vip        ? '<span class="badge vip">VIP</span>' : ''}
+        ${rec.subscriber ? '<span class="badge sub">SUB</span>' : ''}
+      </td>
+      <td>${count}</td>
+    `;
+    countBody.append(tr);
+  });
+
+  // — Total Payouts —
+  console.log('→ Fetch Payout:', urlCount);
+  const res2 = await fetch(urlCount);
+  const data2 = await res2.json();
+
+  const payouts = data2.reduce((acc, s) => {
+    acc[s.user] = (acc[s.user] || 0) + (s.payout || 0);
+    return acc;
+  }, {});
+
+  const sortedPayouts = Object.entries(payouts)
+    .sort(([,a], [,b]) => b - a);
 
   payoutBody.innerHTML = '';
-  Object.entries(sums)
-    .sort((a,b)=>b[1]-a[1])
-    .forEach(([u,total])=>{
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${u}</td><td>$${total.toFixed(2)}</td>`;
-      payoutBody.append(tr);
-    });
+  sortedPayouts.forEach(([user, total]) => {
+    const rec = data2.find(s => s.user === user);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>
+        ${user}
+        ${rec.moderator  ? '<span class="badge mod">MOD</span>' : ''}
+        ${rec.vip        ? '<span class="badge vip">VIP</span>' : ''}
+        ${rec.subscriber ? '<span class="badge sub">SUB</span>' : ''}
+      </td>
+      <td>${total.toFixed(2)}</td>
+    `;
+    payoutBody.append(tr);
+  });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  periodSelect.addEventListener('change', ()=>{
-    const custom = periodSelect.value==='custom';
-    startInput.disabled = !custom;
-    endInput.disabled   = !custom;
-    loadLeaderboard();
-  });
-  startInput.addEventListener('change', loadLeaderboard);
-  endInput  .addEventListener('change', loadLeaderboard);
+periodSelect.addEventListener('change', loadLeaderboard);
+startInput .addEventListener('change', loadLeaderboard);
+endInput   .addEventListener('change', loadLeaderboard);
 
-  loadLeaderboard();
-
-  const es = new EventSource('/events');
-  ['slot','update','delete'].forEach(evt=>
-    es.addEventListener(evt, loadLeaderboard)
-  );
-});
+document.addEventListener('DOMContentLoaded', loadLeaderboard);

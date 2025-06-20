@@ -1,5 +1,23 @@
-// public/in-out.js
+// 1) Define startCooldown *first*, so it’s available whenever you call it.
+function startCooldown(td) {
+  let iv;
+  function tick() {
+    const diff = new Date(td.dataset.expires).getTime() - Date.now();
+    if (diff <= 0) {
+      td.textContent = 'Ready';
+      td.classList.add('ready');
+      clearInterval(iv);
+    } else {
+      const m = Math.floor(diff / 60000);
+      const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+      td.textContent = `${m}:${s}`;
+    }
+  }
+  tick();
+  iv = setInterval(tick, 1000);
+}
 
+// 2) Grab elements
 const periodSelect = document.getElementById('periodSelect');
 const startInput   = document.getElementById('startDate');
 const endInput     = document.getElementById('endDate');
@@ -10,6 +28,7 @@ const outTbody     = document.querySelector('#outTable tbody');
 
 let currentSessionId = null;
 
+// 3) Fetch latest session ID
 async function fetchCurrentSession() {
   try {
     const res = await fetch('/api/sessions');
@@ -20,10 +39,12 @@ async function fetchCurrentSession() {
   }
 }
 
+// 4) Format date to YYYY-MM-DD
 function fmt(d) {
   return d.toISOString().slice(0,10);
 }
 
+// 5) Handle period dropdown changes
 function onPeriodChange() {
   const p = periodSelect.value;
   if (p === 'custom') {
@@ -32,14 +53,15 @@ function onPeriodChange() {
     startInput.disabled = endInput.disabled = true;
     const now = new Date(), sd = new Date(now), ed = new Date(now);
     if      (p==='daily')   sd.setHours(0,0,0,0);
-    else if (p==='weekly')  { sd.setDate(now.getDate()-6); sd.setHours(0,0,0,0); }
-    else if (p==='monthly') { sd.setDate(now.getDate()-29); sd.setHours(0,0,0,0); }
+    else if (p==='weekly')  sd.setDate(now.getDate()-6), sd.setHours(0,0,0,0);
+    else if (p==='monthly') sd.setDate(now.getDate()-29), sd.setHours(0,0,0,0);
     startInput.value = (p==='session' ? '' : fmt(sd));
     endInput.value   = (p==='session' ? '' : fmt(ed));
   }
   renderTables();
 }
 
+// 6) Build query string
 function buildParams() {
   const qs = new URLSearchParams();
   if (periodSelect.value === 'session' && currentSessionId) {
@@ -48,7 +70,7 @@ function buildParams() {
   }
   const p = periodSelect.value;
   let sd = p==='custom' ? startInput.value : '';
-  let ed = p==='custom' ? endInput.value   : '';
+  let ed = p==='custom' ? endInput.value : '';
   if (p !== 'custom' && p !== 'session') {
     const now = new Date(), from = new Date(now);
     if      (p==='daily')   from.setHours(0,0,0,0);
@@ -62,28 +84,11 @@ function buildParams() {
   return qs.toString();
 }
 
-function startCooldown(td) {
-  let iv;
-  function tick() {
-    const diff = new Date(td.dataset.expires).getTime() - Date.now();
-    if (diff <= 0) {
-      td.textContent = 'Ready';
-      td.classList.add('ready');
-      clearInterval(iv);
-    } else {
-      const m = Math.floor(diff/60000);
-      const s = String(Math.floor((diff%60000)/1000)).padStart(2,'0');
-      td.textContent = `${m}:${s}`;
-    }
-  }
-  tick();
-  iv = setInterval(tick, 1000);
-}
-
+// 7) Render both tables
 async function renderTables() {
   const params = buildParams();
 
-  // ─── IN TABLE ───────────────────────────────────────────────────────────
+  // IN
   try {
     const inArr = await (await fetch(`/api/slots?status=IN&${params}`)).json();
     inTbody.innerHTML = '';
@@ -93,17 +98,16 @@ async function renderTables() {
         s.user.toLowerCase().includes(fi) ||
         s.msg.toLowerCase().includes(fi)
       )) return;
-
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${new Date(s.time).toLocaleTimeString()}</td>
         <td>${s.user}</td>
         <td>${s.msg}</td>
         <td>
-          <input
-            class="payout-input"
-            data-id="${s._id}"
-            type="number"
+          <input 
+            class="payout-input" 
+            data-id="${s._id}" 
+            type="number" 
             step="0.01"
             value="${s.payout||''}"
             placeholder="0.00"
@@ -120,7 +124,7 @@ async function renderTables() {
     console.error('❌ Failed fetching IN slots:', e);
   }
 
-  // ─── OUT TABLE ──────────────────────────────────────────────────────────
+  // OUT
   try {
     const outArr = await (await fetch(`/api/slots?status=OUT&${params}`)).json();
     outTbody.innerHTML = '';
@@ -130,7 +134,6 @@ async function renderTables() {
         s.user.toLowerCase().includes(fo) ||
         s.msg.toLowerCase().includes(fo)
       )) return;
-
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${new Date(s.time).toLocaleTimeString()}</td>
@@ -140,7 +143,7 @@ async function renderTables() {
         <td><button class="delete-btn del-btn" data-id="${s._id}">Delete</button></td>
       `;
       const td = tr.querySelector('.action-cell');
-      if (td && td.dataset.expires) startCooldown(td);
+      if (td.dataset.expires) startCooldown(td);
       outTbody.append(tr);
     });
   } catch (e) {
@@ -148,6 +151,7 @@ async function renderTables() {
   }
 }
 
+// 8) Delegate buttons
 document.body.addEventListener('click', async e => {
   const id = e.target.dataset.id;
   if (!id) return;
@@ -165,12 +169,14 @@ document.body.addEventListener('click', async e => {
   }
 });
 
-filterIn.addEventListener('input', renderTables);
+// 9) Filters & period
+filterIn .addEventListener('input', renderTables);
 filterOut.addEventListener('input', renderTables);
 periodSelect.addEventListener('change', onPeriodChange);
 startInput.addEventListener('change', renderTables);
-endInput.addEventListener('change', renderTables);
+endInput  .addEventListener('change', renderTables);
 
+// 10) Initial load + SSE updates
 document.addEventListener('DOMContentLoaded', async () => {
   await fetchCurrentSession();
   onPeriodChange();
